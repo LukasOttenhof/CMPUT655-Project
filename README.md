@@ -6,6 +6,7 @@ conda create -n rl
 conda activate rl
 pip3 install chex flax jax numpy gymnax matplotlib tqdm distrax
 conda install jupyter
+jupyter notebook
 ```
 
 - 
