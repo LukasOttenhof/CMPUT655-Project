@@ -31,8 +31,10 @@ agent = DQNAgent(
 
 # --- Run Experiment ---
 experiment = Experiment(env, agent, num_episodes=1000, max_steps_per_episode=500)
-# experiment.run()
+experiment.run()
 # experiment.plot_results(title="DQN Training on TruckBackerEnv_D",
 #                         save_path="DQN_Discrete_TruckBackerEnv_D.png")
 
-experiment.run_visual()
+# experiment.run_visual()
+experiment.plot_results(title="DQN Training on TruckBackerEnv_D",
+                        save_path="result/DQN_Discrete_TruckBackerEnv.png")

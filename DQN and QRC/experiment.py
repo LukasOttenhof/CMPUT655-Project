@@ -67,9 +67,15 @@ class Experiment:
             #       f"Reward: {total_reward:7.2f}, "
             #       f"Epsilon: {self.agent.epsilon:.5f}, "
             #       f"Loss: {self.recent_loss:.5f}")
-            print(f"Episode {episode:4d}/{self.num_episodes}, "
-                  f"Reward: {total_reward:7.2f}, "
-                  f"Epsilon: {self.agent.epsilon:.5f}")
+            if self.recent_loss:
+                print(f"Episode {episode:4d}/{self.num_episodes}, "
+                    f"Reward: {total_reward:7.2f}, "
+                    f"Epsilon: {self.agent.epsilon:.5f}, "
+                    f"Loss: {self.recent_loss:.5f}")
+            else:
+                print(f"Episode {episode:4d}/{self.num_episodes}, "
+                    f"Reward: {total_reward:7.2f}, "
+                    f"Epsilon: {self.agent.epsilon:.5f}")
 
     def plot_results(self, title="Training Rewards", save_path=None, smooth_window=50):
         plt.figure(figsize=(14, 6))
