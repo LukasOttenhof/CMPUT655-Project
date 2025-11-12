@@ -20,7 +20,7 @@ class QRCAgent:
         lam=0.9,                # kept for API compatibility (not used here)
         epsilon=1.0,
         epsilon_decay=0.995,
-        min_epsilon=0.01,
+        epsilon_min=0.01,
         buffer_size=50000,
         batch_size=64,
         beta=1.0,               # regularization strength for h (matches JAX self.beta)
@@ -33,7 +33,7 @@ class QRCAgent:
         self.lam = lam
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
-        self.min_epsilon = min_epsilon
+        self.min_epsilon = epsilon_min
         self.batch_size = batch_size
         self.beta = beta
 

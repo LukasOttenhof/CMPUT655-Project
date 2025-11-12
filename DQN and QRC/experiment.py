@@ -1,6 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import os
+import numpy as np
+import torch
+import random
 
 class Experiment:
     def __init__(
@@ -166,34 +168,29 @@ class Experiment:
         plt.ioff()  # Turn off interactive mode
         plt.show()
 
-    def run_multiple(self, agent, n_runs=5, save_path=None, smooth_window=50):
-        """
-        Run the experiment multiple times and plot mean ± std reward.
-        """
+    def run_multiple(self, agent, num_runs=5, save_path=None, smooth_window=50):
         all_rewards = []
 
-        for run in range(n_runs):
-            print(f"--- Run {run+1}/{n_runs} ---")
-            
-            # Reset environment and agent for each run
-            reset_env = self.env
+        for run in range(num_runs):
+            print(f"Run {run+1}/{num_runs} Start.")
+            # set random seeds for reproducibility
+            seed = run
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            random.seed(seed)
+
+            # reinitialize environment and agent each run
+            env = self.env
 
             episode_rewards = []
 
             for episode in range(1, self.num_episodes + 1):
-                reset_output = reset_env.reset()
-                state = reset_output[0] if isinstance(reset_output, tuple) else reset_output
+                state = env.reset()
                 total_reward = 0
 
                 for t in range(self.max_steps):
                     action = agent.agent_policy(state)
-                    step_result = reset_env.step(action)
-                    if len(step_result) == 5:
-                        next_state, reward, terminated, truncated, _ = step_result
-                        done = terminated or truncated
-                    else:
-                        next_state, reward, done, _ = step_result
-
+                    next_state, reward, done, info = env.step(action)
                     total_reward += reward
                     agent.remember(state, action, reward, next_state, done)
                     agent.train_with_mem()
@@ -207,40 +204,21 @@ class Experiment:
                 episode_rewards.append(total_reward)
 
             all_rewards.append(episode_rewards)
-            print(f"Run {run+1} finished.")
+            print(f"Run {run+1}/{num_runs} finished.")
 
-        # --- Compute mean and std ---
-        all_rewards = np.array(all_rewards)
-        mean_rewards = np.mean(all_rewards, axis=0)
-        std_rewards = np.std(all_rewards, axis=0)
+        # --- Compute mean and std over runs ---
+        mean_rewards_dqp = np.mean(all_rewards, axis=0)
+        std_rewards_dqp = np.std(all_rewards, axis=0)
 
-        # --- Plot with error band ---
-        plt.figure(figsize=(14, 6))
-        plt.plot(mean_rewards, label="Mean Reward")
-        plt.fill_between(
-            np.arange(self.num_episodes),
-            mean_rewards - std_rewards,
-            mean_rewards + std_rewards,
-            alpha=0.2,
-            label="±1 Std"
-        )
-
-        # Optional smoothing
-        if smooth_window > 1 and len(mean_rewards) >= smooth_window:
-            window = np.ones(smooth_window) / smooth_window
-            smoothed = np.convolve(mean_rewards, window, mode='valid')
-            x_smooth = np.arange(smooth_window - 1, len(mean_rewards))
-            plt.plot(x_smooth, smoothed, label=f"Smoothed (window={smooth_window})", linewidth=2.0)
-
+        # --- Plot learning curve with error bands ---
+        plt.plot(mean_rewards_dqp, label="Mean Reward")
+        plt.fill_between(range(self.num_episodes),
+                        mean_rewards_dqp - std_rewards_dqp,
+                        mean_rewards_dqp + std_rewards_dqp,
+                        alpha=0.2)
         plt.xlabel("Episode")
         plt.ylabel("Total Reward")
-        plt.title(f"{self.agent.__class__.__name__} Training over {n_runs} Runs")
         plt.legend()
-        plt.grid(True)
-
-        if save_path:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-
+        plt.title(f"DQN ({num_runs} runs)")
         plt.show()
 
