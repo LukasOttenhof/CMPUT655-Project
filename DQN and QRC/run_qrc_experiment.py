@@ -38,4 +38,4 @@ experiment.run()
 # experiment.run_visual()
 
 experiment.plot_results(title="QRC Training on TruckBackerEnv_D",
-                        save_path="result/QRC_Discrete_TruckBackerEnv.png")
+                        save_path="results/QRC_Discrete_TruckBackerEnv.png")

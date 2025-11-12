@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 class Experiment:
     def __init__(
@@ -163,5 +164,83 @@ class Experiment:
                 f"Epsilon: {self.agent.epsilon:.5f}")
 
         plt.ioff()  # Turn off interactive mode
+        plt.show()
+
+    def run_multiple(self, agent, n_runs=5, save_path=None, smooth_window=50):
+        """
+        Run the experiment multiple times and plot mean ± std reward.
+        """
+        all_rewards = []
+
+        for run in range(n_runs):
+            print(f"--- Run {run+1}/{n_runs} ---")
+            
+            # Reset environment and agent for each run
+            reset_env = self.env
+
+            episode_rewards = []
+
+            for episode in range(1, self.num_episodes + 1):
+                reset_output = reset_env.reset()
+                state = reset_output[0] if isinstance(reset_output, tuple) else reset_output
+                total_reward = 0
+
+                for t in range(self.max_steps):
+                    action = agent.agent_policy(state)
+                    step_result = reset_env.step(action)
+                    if len(step_result) == 5:
+                        next_state, reward, terminated, truncated, _ = step_result
+                        done = terminated or truncated
+                    else:
+                        next_state, reward, done, _ = step_result
+
+                    total_reward += reward
+                    agent.remember(state, action, reward, next_state, done)
+                    agent.train_with_mem()
+                    state = next_state
+                    if done:
+                        break
+
+                if episode % self.target_update_freq == 0:
+                    agent.update_target()
+
+                episode_rewards.append(total_reward)
+
+            all_rewards.append(episode_rewards)
+            print(f"Run {run+1} finished.")
+
+        # --- Compute mean and std ---
+        all_rewards = np.array(all_rewards)
+        mean_rewards = np.mean(all_rewards, axis=0)
+        std_rewards = np.std(all_rewards, axis=0)
+
+        # --- Plot with error band ---
+        plt.figure(figsize=(14, 6))
+        plt.plot(mean_rewards, label="Mean Reward")
+        plt.fill_between(
+            np.arange(self.num_episodes),
+            mean_rewards - std_rewards,
+            mean_rewards + std_rewards,
+            alpha=0.2,
+            label="±1 Std"
+        )
+
+        # Optional smoothing
+        if smooth_window > 1 and len(mean_rewards) >= smooth_window:
+            window = np.ones(smooth_window) / smooth_window
+            smoothed = np.convolve(mean_rewards, window, mode='valid')
+            x_smooth = np.arange(smooth_window - 1, len(mean_rewards))
+            plt.plot(x_smooth, smoothed, label=f"Smoothed (window={smooth_window})", linewidth=2.0)
+
+        plt.xlabel("Episode")
+        plt.ylabel("Total Reward")
+        plt.title(f"{self.agent.__class__.__name__} Training over {n_runs} Runs")
+        plt.legend()
+        plt.grid(True)
+
+        if save_path:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+
         plt.show()
 
