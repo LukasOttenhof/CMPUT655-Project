@@ -10,12 +10,12 @@ env = TruckBackerEnv_D(render_mode=None)
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.n
 
-num_episodes = 1000
-max_steps_per_episode = 500
+num_episodes = 10000
+max_steps_per_episode = 5000
 gamma = 0.99
 learning_rate = 1e-3
 epsilon_start = 1.0
-epsilon_decay = 0.99997
+epsilon_decay = 0.999997
 epsilon_min = 0.01
 batch_size = 64
 target_update_freq = 5  # Update target net every few episodes
@@ -44,7 +44,7 @@ agent = DQNAgent(
 
 # experiment = Experiment(env, agent, num_episodes=1000, max_steps_per_episode=500)
 # experiment.run_multiple(agent, num_runs=20, save_path="results/DQN_Result.png")
-num_runs = 50
+num_runs = 20
 
 all_rewards = []
 

@@ -1,2 +1,0 @@
-from gtd_algos.src.optimizers.obgd_with_traces import obgd_with_traces
-from gtd_algos.src.optimizers.sgd_with_traces import sgd_with_traces
