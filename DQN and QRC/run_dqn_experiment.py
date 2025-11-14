@@ -22,4 +22,5 @@ batch_size = 64
 target_update_freq = 5  # Update target net every few episodes
 
 dqn_expirement = Experiment(agent_name=DQN_Agent)
-dqn_expirement.run_single_visual()
+# dqn_expirement.run_single_visual()
+dqn_expirement.run_multiple_visual()

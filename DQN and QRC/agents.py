@@ -44,15 +44,15 @@ class QRCAgent:
         self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
 
         # Networks
-        self.q_net = self.build_nn(output_dim=self.action_dim).to(self.device)
+        self.q_nn = self.build_nn(output_dim=self.action_dim).to(self.device)
         self.target_net = self.build_nn(output_dim=self.action_dim).to(self.device)
         self.h_net = self.build_nn(output_dim=self.action_dim).to(self.device)
 
         # init target
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        self.target_net.load_state_dict(self.q_nn.state_dict())
 
         # Optimizers
-        self.q_optimizer = optim.Adam(self.q_net.parameters(), lr=self.lr)
+        self.q_optimizer = optim.Adam(self.q_nn.parameters(), lr=self.lr)
         self.h_optimizer = optim.Adam(self.h_net.parameters(), lr=self.lr)
 
         # Steps counter
@@ -74,8 +74,10 @@ class QRCAgent:
             return int(np.random.randint(self.action_dim))
         state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            q_values = self.q_net(state)
-        return int(q_values.argmax(dim=1).item())
+            q_values = self.q_nn(state)
+        # return int(q_values.argmax(dim=1).item())
+        return q_values.argmax().item()
+
 
     def remember(self, state, action, reward, next_state, done):
         """Store transition tuple"""
@@ -96,7 +98,7 @@ class QRCAgent:
         dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)      # (B,1)
 
         # Current Q for taken actions (B,1)
-        q_all = self.q_net(states)                                  # (B, A)
+        q_all = self.q_nn(states)                                  # (B, A)
         q_values = q_all.gather(1, actions)                         # (B,1)
 
         # h-values for taken actions (B,1)
@@ -158,7 +160,7 @@ class QRCAgent:
 
     def update_target(self):
         """Hard update target network weights from q_net"""
-        self.target_net.load_state_dict(self.q_net.state_dict())
+        self.target_net.load_state_dict(self.q_nn.state_dict())
 
 
 class DQNAgent:
@@ -232,7 +234,6 @@ class DQNAgent:
  
         if self.epsilon > self.epsilon_min:
             self.epsilon *= self.epsilon_decay 
-
     
     def update_target(self): # update target network replacing it with the current q network
         self.target_net.load_state_dict(self.q_nn.state_dict())

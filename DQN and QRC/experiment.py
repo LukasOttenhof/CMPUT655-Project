@@ -141,6 +141,65 @@ class Experiment:
             plt.savefig(save_path, dpi=300, bbox_inches='tight')
         plt.show()
         return episode_rewards
+    
+    def run_multiple(self, num_runs=5):
+        """
+        Run multiple experiments and return average reward per episode.
+        Returns:
+            avg_rewards (np.array): Mean reward per episode across runs.
+            all_rewards (list): List of reward lists from each run.
+        """
+        all_rewards = []
+
+        for run in range(1, num_runs + 1):
+            print(f"\n===== Running Experiment {run}/{num_runs} =====")
+            rewards = self.run_single()
+            all_rewards.append(rewards)
+
+        # Convert to array: shape -> (num_runs, num_episodes)
+        all_rewards = np.array(all_rewards)
+
+        # Average across runs
+        avg_rewards = np.mean(all_rewards, axis=0)
+        std_rewards = np.std(all_rewards, axis=0)
+
+        print("\n===== Multi-Run Complete =====")
+        return avg_rewards, std_rewards, all_rewards
+    
+    def run_multiple_visual(self, num_runs=5, smooth_window=50):
+        """
+        Run multiple experiments and plot average + std deviation band.
+        """
+        avg_rewards, std_rewards, all_rewards = self.run_multiple(num_runs)
+
+        plt.figure(figsize=(20, 20))
+
+        # Plot mean reward
+        plt.plot(avg_rewards, label="Average Reward", linewidth=2)
+
+        # Confidence band (±1 std)
+        lower = avg_rewards - std_rewards
+        upper = avg_rewards + std_rewards
+        plt.fill_between(
+            range(len(avg_rewards)),
+            lower, upper,
+            alpha=0.2, label="±1 Std Dev"
+        )
+
+        # Optional smoothing
+        if len(avg_rewards) >= smooth_window:
+            window = np.ones(smooth_window) / smooth_window
+            smoothed = np.convolve(avg_rewards, window, mode="valid")
+            plt.plot(smoothed, label=f"Smoothed Avg (window={smooth_window})")
+
+        plt.xlabel('Episode')
+        plt.ylabel('Reward')
+        plt.title(f"Average Reward Over {num_runs} Runs — {self.agent_name}")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+        return avg_rewards, std_rewards, all_rewards
 
     
 
