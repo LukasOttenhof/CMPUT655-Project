@@ -11,55 +11,69 @@ import random
 from collections import deque
 
 class QRCAgent:
+    """
+    Q-learning with Regularized Correction (QRC)
+    ----------------------------------------------------
+    - Q network learns TD error + correction from h(s,a)
+    - h network learns to approximate TD error (delta)
+    - h has L2 regularization (weight_decay = beta)
+    """
+
     def __init__(
         self,
         state_dim,
         action_dim,
         lr=1e-3,
         gamma=0.99,
-        lam=0.9,                # kept for API compatibility (not used here)
         epsilon=1.0,
         epsilon_decay=0.995,
         epsilon_min=0.01,
         buffer_size=50000,
         batch_size=64,
-        beta=1.0,               # regularization strength for h (matches JAX self.beta)
+        beta=1,        # regularization on h-net (weight decay) => 1 # 1e-5
         device=None,
     ):
+        # Basic configs
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.lr = lr
         self.gamma = gamma
-        self.lam = lam
         self.epsilon = epsilon
         self.epsilon_decay = epsilon_decay
-        self.min_epsilon = epsilon_min
+        self.epsilon_min = epsilon_min
         self.batch_size = batch_size
         self.beta = beta
 
-        # Replay memory
+        # Replay buffer
         self.memory = deque(maxlen=buffer_size)
 
         # Device
-        self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+        self.device = (
+            device
+            or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        )
 
         # Networks
-        self.q_nn = self.build_nn(output_dim=self.action_dim).to(self.device)
-        self.target_net = self.build_nn(output_dim=self.action_dim).to(self.device)
-        self.h_net = self.build_nn(output_dim=self.action_dim).to(self.device)
+        self.q_nn = self.build_nn(output_dim=action_dim).to(self.device)
+        self.target_net = self.build_nn(output_dim=action_dim).to(self.device)
+        self.h_net = self.build_nn(output_dim=action_dim).to(self.device)
 
-        # init target
+        # Initialize target net
         self.target_net.load_state_dict(self.q_nn.state_dict())
+        self.target_net.eval()
 
         # Optimizers
         self.q_optimizer = optim.Adam(self.q_nn.parameters(), lr=self.lr)
-        self.h_optimizer = optim.Adam(self.h_net.parameters(), lr=self.lr)
+        self.h_optimizer = optim.AdamW(
+            self.h_net.parameters(),
+            lr=self.lr,
+            weight_decay=self.beta * self.lr,    # ← REGULARIZATION on h
+        )
 
-        # Steps counter
         self.steps = 0
 
     def build_nn(self, output_dim):
-        """2 hidden layers with 128 neurons each"""
+        """Simple 2-layer MLP"""
         return nn.Sequential(
             nn.Linear(self.state_dim, 128),
             nn.ReLU(),
@@ -69,97 +83,92 @@ class QRCAgent:
         )
 
     def agent_policy(self, state):
-        """Epsilon-greedy policy returning an int action"""
+        """Epsilon-greedy"""
         if np.random.rand() < self.epsilon:
             return int(np.random.randint(self.action_dim))
+
         state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
             q_values = self.q_nn(state)
-        # return int(q_values.argmax(dim=1).item())
-        return q_values.argmax().item()
+        return int(q_values.argmax(dim=1).item())
 
 
-    def remember(self, state, action, reward, next_state, done):
-        """Store transition tuple"""
-        self.memory.append((state, action, reward, next_state, done))
+    def remember(self, s, a, r, s2, done):
+        self.memory.append((s, a, r, s2, done))
+
+
+    def compute_loss(self, batch):
+        """Compute v_loss (Q-update) and h_loss (correction learner) and print RC info"""
+
+        # Unpack batch
+        states, actions, rewards, next_states, dones = batch
+
+        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device) 
+        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)
+        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)
+        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
+        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+
+        # Current Q(s,a)
+        q_values = self.q_nn(states)
+        # q_sa = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+        q_sa = q_values.gather(1, actions)
+
+        #TODO : replace target_net with q_nn if we can't use it
+
+        # Target Q
+        # with torch.no_grad():
+        #     next_q = self.target_net(next_states).max(1)[0]
+        #     target = rewards + self.gamma * (1 - dones) * next_q
+
+        next_q = self.target_net(next_states).max(1)[0]
+        target = rewards + self.gamma * (1 - dones) * next_q
+
+        # TD ERROR δ
+        delta = q_sa - target.detach()
+
+        # Predict correction h(s,a)
+        h_values = self.h_net(states)
+        h_sa = h_values.gather(1, actions).squeeze(1)
+
+        # Correction term => Don't detach next_q here
+        # correction_term = self.gamma * h_sa.detach() * next_q.detach()
+        correction_term = self.gamma * h_sa.detach() * next_q
+
+        # QRC losses
+        v_loss = 0.5 * delta.pow(2) + correction_term
+        h_loss = 0.5 * (delta.detach() - h_sa).pow(2)
+
+        return v_loss.mean(), h_loss.mean()
 
     def train_with_mem(self):
-        """Train using experience replay. Returns total loss (q_loss + h_loss) for logging."""
         if len(self.memory) < self.batch_size:
-            return 0.0
+            return
 
+        # Sample mini-batch
         batch = random.sample(self.memory, self.batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device)         # (B, state_dim)
-        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)
-        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)     # (B,1)
-        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)  # (B,1)
-        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)      # (B,1)
+        # Compute QRC losses
+        v_loss, h_loss = self.compute_loss(
+            (states, actions, rewards, next_states, dones)
+        )
 
-        # Current Q for taken actions (B,1)
-        q_all = self.q_nn(states)                                  # (B, A)
-        q_values = q_all.gather(1, actions)                         # (B,1)
-
-        # h-values for taken actions (B,1)
-        h_all = self.h_net(states)
-        h_values = h_all.gather(1, actions)                         # (B,1)
-
-        # Next-state greedy value (use target_net), detach it
-        with torch.no_grad():
-            next_q_all = self.target_net(next_states)               # (B,A)
-            # greedy next action value: max_a Q'(s', a)
-            vtp1 = next_q_all.max(dim=1, keepdim=True)[0]          # (B,1)
-            vtp1 = vtp1.detach()
-
-            # Q target (standard Q-learning greedy target)
-            target = rewards + self.gamma * vtp1 * (1.0 - dones)   # (B,1)
-            target = target.detach()
-
-        # TD error (not detached yet)
-        delta = target - q_values                                   # (B,1)
-
-        # Build v_loss and h_loss per-sample exactly like JAX:
-        # v_loss_i = 0.5 * delta^2 + gamma * stop_gradient(delta_hat) * vtp1
-        # h_loss_i = 0.5 * (stop_gradient(delta) - delta_hat)^2
-        v_loss_terms = 0.5 * (delta ** 2) + self.gamma * h_values.detach() * vtp1
-        h_loss_terms = 0.5 * (delta.detach() - h_values) ** 2
-
-        v_loss = v_loss_terms.mean()
-        h_loss = h_loss_terms.mean()
-
-        # --- Update Q-network (q_net) ---
+        # Optimize Q-net
         self.q_optimizer.zero_grad()
-        v_loss.backward(retain_graph=True)   # retain_graph because h_loss backward next might need graph if shared (here nets separate so optional)
+        v_loss.backward()
         self.q_optimizer.step()
 
-        # --- Update h-network (h_net) ---
+        # Optimize h-net
         self.h_optimizer.zero_grad()
         h_loss.backward()
         self.h_optimizer.step()
 
-        # --- Apply explicit decay / regularization on h parameters (beta term) ---
-        # This approximates: params_h <- params_h - stepsize * beta * params_h
-        # i.e. multiplicative shrinkage: p *= (1 - lr * beta)
-        if self.beta != 0.0:
-            decay_factor = 1.0 - (self.lr * self.beta)
-            # clamp decay_factor to a sensible positive number
-            decay_factor = max(decay_factor, 0.0)
-            with torch.no_grad():
-                for p in self.h_net.parameters():
-                    p.mul_(decay_factor)
+        # Epsilon decay
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
-        # Decay epsilon
-        if self.epsilon > self.min_epsilon:
-            self.epsilon *= self.epsilon_decay
-            if self.epsilon < self.min_epsilon:
-                self.epsilon = self.min_epsilon
-
-        total_loss = v_loss.item() + h_loss.item()
-        return total_loss
-
+    # Target network update
     def update_target(self):
-        """Hard update target network weights from q_net"""
         self.target_net.load_state_dict(self.q_nn.state_dict())
 
 

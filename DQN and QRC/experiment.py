@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import numpy as np
 from agents import QRCAgent, DQNAgent
 from tbu_gym.tbu_discrete import TruckBackerEnv_D
 
@@ -200,6 +199,113 @@ class Experiment:
         plt.show()
 
         return avg_rewards, std_rewards, all_rewards
+    
+    def run_agents_multiple_seeds(self, seeds, smooth_window=50):
+        """
+        Run both QRC and DQN on the environment for multiple seeds.
+        Each run uses a fixed seed for reproducibility.
+        Collects rewards, computes average and std, and plots comparison.
+        
+        Args:
+            seeds (list[int]): List of seeds for independent runs
+            smooth_window (int): Window size for smoothing curves
+        """
+        agents = ["QRC_AGENT", "DQN_Agent"]
+        results = {}
+
+        for agent_name in agents:
+            print(f"\n========== Running {agent_name} ==========")
+            all_rewards_agent = []
+
+            for run_idx, seed in enumerate(seeds):
+                print(f"\n--- Run {run_idx + 1} with seed {seed} ---")
+
+                # Initialize environment with seed
+                env = TruckBackerEnv_D(render_mode=None)
+                env.seed(seed)
+                state_dim = env.observation_space.shape[0]
+                action_dim = env.action_space.n
+
+                # Initialize agent
+                if agent_name == QRC_AGENT:
+                    agent = QRCAgent(
+                        state_dim=state_dim,
+                        action_dim=action_dim,
+                        lr=self.learning_rate,
+                        gamma=self.gamma,
+                        epsilon=self.epsilon_start,
+                        epsilon_decay=self.epsilon_decay,
+                        epsilon_min=self.epsilon_min,
+                        batch_size=self.batch_size
+                    )
+                elif agent_name == DQN_Agent:
+                    agent = DQNAgent(
+                        state_dim=state_dim,
+                        action_dim=action_dim,
+                        lr=self.learning_rate,
+                        gamma=self.gamma,
+                        epsilon=self.epsilon_start,
+                        epsilon_decay=self.epsilon_decay,
+                        epsilon_min=self.epsilon_min,
+                        batch_size=self.batch_size
+                    )
+
+                # --- Run episodes ---
+                episode_rewards = []
+                for episode in range(1, self.num_episodes + 1):
+                    reset_output = env.reset()
+                    state = reset_output[0] if isinstance(reset_output, tuple) else reset_output
+                    total_reward = 0
+
+                    for t in range(self.max_steps_per_episode):
+                        action = agent.agent_policy(state)
+                        step_result = env.step(action)
+                        if len(step_result) == 5:
+                            next_state, reward, terminated, truncated, _ = step_result
+                            done = terminated or truncated
+                        else:
+                            next_state, reward, done, _ = step_result
+
+                        total_reward += reward
+                        agent.remember(state, action, reward, next_state, done)
+                        loss = agent.train_with_mem()
+                        state = next_state
+                        if done:
+                            break
+
+                    if episode % self.target_update_freq == 0:
+                        agent.update_target()
+
+                    episode_rewards.append(total_reward)
+
+                all_rewards_agent.append(episode_rewards)
+                del env
+
+            # Compute average and std
+            all_rewards_agent = np.array(all_rewards_agent)
+            avg_rewards = np.mean(all_rewards_agent, axis=0)
+            std_rewards = np.std(all_rewards_agent, axis=0)
+            results[agent_name] = {
+                "avg": avg_rewards,
+                "std": std_rewards,
+                "all": all_rewards_agent
+            }
+
+        # --- Plot comparison ---
+        plt.figure(figsize=(14, 6))
+        for agent_name in agents:
+            avg = results[agent_name]["avg"]
+            std = results[agent_name]["std"]
+            plt.plot(avg, label=f"{agent_name} Avg Reward")
+            plt.fill_between(range(len(avg)), avg - std, avg + std, alpha=0.2)
+        plt.xlabel("Episode")
+        plt.ylabel("Total Reward")
+        plt.title(f"QRC vs DQN on TruckBackerUpper ({len(seeds)} seeds)")
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+        return results
 
     
 

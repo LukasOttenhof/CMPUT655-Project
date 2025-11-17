@@ -21,6 +21,11 @@ epsilon_min = 0.01
 batch_size = 64
 target_update_freq = 5  # Update target net every few episodes
 
-dqn_expirement = Experiment(agent_name=DQN_Agent)
-# dqn_expirement.run_single_visual()
-dqn_expirement.run_multiple_visual()
+# dqn_expirement = Experiment(agent_name=DQN_Agent)
+# # dqn_expirement.run_single_visual()
+# dqn_expirement.run_multiple_visual(num_runs=10)
+
+# comparison_experiment = Experiment()
+# seeds = [42, 123, 456]
+
+# results = comparison_experiment.run_agents_multiple_seeds(seeds)
