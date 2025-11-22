@@ -21,7 +21,21 @@ class QRCAgent:
         batch_size=64,
         beta=1,     # weight decay for h-net (small default)
         device=None,
+        seed=None
     ):
+        if seed is not None:
+            self.seed = seed
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            random.seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(seed)
+                torch.cuda.manual_seed_all(seed)
+            # Make CUDA operations deterministic (optional, may slow down training)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        else:
+            self.seed = None
         # Basic configs
         self.state_dim = state_dim
         self.action_dim = action_dim
@@ -165,13 +179,41 @@ class QRCAgent:
 
         # Epsilon decay
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        overall_loss = td_loss.item() + correction_term.item() + h_loss.item()
+        return overall_loss
 
     # Target network update (hard update)
     def update_target(self):
         self.target_net.load_state_dict(self.q_nn.state_dict())
 
 class DQNAgent:
-    def __init__(self, state_dim, action_dim, lr=1e-5, gamma=0.99, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01, buffer_size=50000, batch_size=64):
+    def __init__(
+            self, 
+            state_dim, 
+            action_dim, 
+            lr=1e-5, 
+            gamma=0.99, 
+            epsilon=1.0, 
+            epsilon_decay=0.995, 
+            epsilon_min=0.01, 
+            buffer_size=50000, 
+            batch_size=64,
+            seed=None
+        ):
+        if seed is not None:
+            self.seed = seed
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            random.seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(seed)
+                torch.cuda.manual_seed_all(seed)
+            # Make CUDA operations deterministic (optional, may slow down training)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        else:
+            self.seed = None
+            
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.gamma = gamma
