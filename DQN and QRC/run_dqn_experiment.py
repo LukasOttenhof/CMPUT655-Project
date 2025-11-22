@@ -30,5 +30,5 @@ target_update_freq = 5  # Update target net every few episodes
 
 # results = comparison_experiment.run_agents_multiple_seeds(seeds)
 
-dqn_expirement = Experiment(agent_name=DQN_Agent)
-dqn_expirement.run_agents_multiple_seeds(seeds=[42])
+# dqn_expirement = Experiment(agent_name=DQN_Agent)
+# dqn_expirement.run_agents_multiple_seeds(seeds=[42])

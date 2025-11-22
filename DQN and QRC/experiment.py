@@ -189,7 +189,7 @@ class Experiment:
 
         return avg_rewards, std_rewards, all_rewards
 
-    def run_agents_sequential_multiple_seeds(self, seeds, smooth_window=50):
+    def run_agents_sequential_multiple_seeds(self, seeds, smooth_window=50, qrc_file="qrc.txt", dqn_file="dqn.txt"):
         """Run QRC and DQN sequentially across multiple seeds and plot comparison with smoothed curves."""
         results = {"QRC_AGENT": [], "DQN_Agent": []}
 
@@ -307,6 +307,8 @@ class Experiment:
         dqn_avg = np.mean(dqn_array, axis=0)
         dqn_std = np.std(dqn_array, axis=0)
 
+        np.savetxt(qrc_file, qrc_array, fmt="%.5f")
+        np.savetxt(dqn_file, dqn_array, fmt="%.5f")
         # --- Plot comparison ---
         plt.figure(figsize=(14, 6))
 

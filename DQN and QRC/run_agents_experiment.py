@@ -7,6 +7,6 @@ def generate_seeds(n, seed_range=(0, 10000)):
 
 
 experiment = Experiment()
-seeds = generate_seeds(3)
+seeds = generate_seeds(1000)
 print("Running experiment with seeds:", seeds)
 experiment.run_agents_sequential_multiple_seeds(seeds=seeds)
