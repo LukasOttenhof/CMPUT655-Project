@@ -17,7 +17,7 @@ class Experiment:
         epsilon_decay = 0.99997,
         epsilon_min = 0.01,
         batch_size = 64,
-        target_update_freq=10 ,
+        target_update_freq=10,
         agent_name = QRC_AGENT
     ):
         self.num_episodes = num_episodes

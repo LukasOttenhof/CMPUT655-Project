@@ -1,24 +1,13 @@
 import numpy as np
 from tqdm import tqdm
-
 from rl_glue import RLGlue
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import random
-
 from collections import deque
 
 class QRCAgent:
-    """
-    Q-learning with Regularized Correction (QRC)
-    ----------------------------------------------------
-    - Q network learns TD error + correction from h(s,a)
-    - h network learns to approximate TD error (delta)
-    - h has L2 regularization (weight_decay = beta)
-    """
-
     def __init__(
         self,
         state_dim,
@@ -30,7 +19,7 @@ class QRCAgent:
         epsilon_min=0.01,
         buffer_size=50000,
         batch_size=64,
-        beta=1,        # regularization on h-net (weight decay) => 1 # 1e-5
+        beta=1,     # weight decay for h-net (small default)
         device=None,
     ):
         # Basic configs
@@ -48,12 +37,9 @@ class QRCAgent:
         self.memory = deque(maxlen=buffer_size)
 
         # Device
-        self.device = (
-            device
-            or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        )
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Networks
+        # Networks (simple MLPs)
         self.q_nn = self.build_nn(output_dim=action_dim).to(self.device)
         self.target_net = self.build_nn(output_dim=action_dim).to(self.device)
         self.h_net = self.build_nn(output_dim=action_dim).to(self.device)
@@ -64,11 +50,7 @@ class QRCAgent:
 
         # Optimizers
         self.q_optimizer = optim.Adam(self.q_nn.parameters(), lr=self.lr)
-        self.h_optimizer = optim.AdamW(
-            self.h_net.parameters(),
-            lr=self.lr,
-            weight_decay=self.beta * self.lr,    # ← REGULARIZATION on h
-        )
+        self.h_optimizer = optim.AdamW(self.h_net.parameters(), lr=self.lr, weight_decay=self.beta)
 
         self.steps = 0
 
@@ -87,79 +69,96 @@ class QRCAgent:
         if np.random.rand() < self.epsilon:
             return int(np.random.randint(self.action_dim))
 
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
+        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # (1, state_dim)
         with torch.no_grad():
-            q_values = self.q_nn(state)
+            q_values = self.q_nn(state_t)  # (1, action_dim)
         return int(q_values.argmax(dim=1).item())
-
 
     def remember(self, s, a, r, s2, done):
         self.memory.append((s, a, r, s2, done))
 
-
     def compute_loss(self, batch):
-        """Compute v_loss (Q-update) and h_loss (correction learner) and print RC info"""
-
-        # Unpack batch
         states, actions, rewards, next_states, dones = batch
 
-        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device) 
-        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)
-        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
-        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device)            
+        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)  
+        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)          
+        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)       
+        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)           
 
         # Current Q(s,a)
-        q_values = self.q_nn(states)
-        # q_sa = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
-        q_sa = q_values.gather(1, actions)
+        q_values = self.q_nn(states)                  
+        q_sa = q_values.gather(1, actions)            
 
-        #TODO : replace target_net with q_nn if we can't use it
+        # Next Q from target net — do NOT use no_grad() here,
+        # because correction term needs gradients w.r.t. target_net.
+        next_q_vals = self.target_net(next_states)    
+        next_q = next_q_vals.max(1)[0].unsqueeze(1)   
 
-        # Target Q
-        # with torch.no_grad():
-        #     next_q = self.target_net(next_states).max(1)[0]
-        #     target = rewards + self.gamma * (1 - dones) * next_q
 
-        next_q = self.target_net(next_states).max(1)[0]
-        target = rewards + self.gamma * (1 - dones) * next_q
+        # Standard TD target
+        delta = (rewards + self.gamma * (1.0 - dones) * next_q.detach()) - q_sa
 
-        # TD ERROR δ
-        delta = q_sa - target.detach()
+        delta_detached_for_h = delta.detach()
 
         # Predict correction h(s,a)
-        h_values = self.h_net(states)
-        h_sa = h_values.gather(1, actions).squeeze(1)
+        h_values = self.h_net(states)                      
+        h_sa = h_values.gather(1, actions)                 
 
-        # Correction term => Don't detach next_q here
-        # correction_term = self.gamma * h_sa.detach() * next_q.detach()
-        correction_term = self.gamma * h_sa.detach() * next_q
+        # td_loss (0.5 * MSE)
+        td_loss = 0.5 * (delta.pow(2)).mean()
 
-        # QRC losses
-        v_loss = 0.5 * delta.pow(2) + correction_term
-        h_loss = 0.5 * (delta.detach() - h_sa).pow(2)
+        # delta_hat (we detach h_sa for correction so the correction backward affects only target_net)
+        delta_hat_detached = h_sa.detach()
 
-        return v_loss.mean(), h_loss.mean()
+        # correction term: gamma * <h, x> * Q(s', a')  -> next_q is from target_net (has grad)
+        correction_term = (self.gamma * delta_hat_detached * next_q).mean()
+
+        # h loss: regress h(s,a) to delta.detach()  (this uses delta_detached_for_h so no q-network graph)
+        h_loss = 0.5 * ((delta_detached_for_h - h_sa).pow(2)).mean()
+
+        return td_loss, correction_term, h_loss
 
     def train_with_mem(self):
         if len(self.memory) < self.batch_size:
             return
 
-        # Sample mini-batch
         batch = random.sample(self.memory, self.batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        # Compute QRC losses
-        v_loss, h_loss = self.compute_loss(
+        # compute losses (td_loss, correction_term, h_loss)
+        td_loss, correction_term, h_loss = self.compute_loss(
             (states, actions, rewards, next_states, dones)
         )
 
-        # Optimize Q-net
+        # zero grads on policy and target nets
         self.q_optimizer.zero_grad()
-        v_loss.backward()
+        # We need to zero grads of target_net because we'll backprop the correction term through target_net
+        for p in self.target_net.parameters():
+            if p.grad is not None:
+                p.grad.zero_()
+
+        # 1) compute gradients for td_loss w.r.t policy network parameters
+        td_loss.backward(retain_graph=False)   # no need to retain graph, since h_loss does not use q-graph now
+
+        # 2) compute gradients for correction_term w.r.t target_net parameters
+        # (correction_term depends on next_q which comes from target_net)
+        correction_term.backward(retain_graph=False)
+
+        # 3) add target_net grads to policy network grads (mirror reference code)
+        # Important: q_nn and target_net must have same parameter ordering
+        for (policy_param, target_param) in zip(self.q_nn.parameters(), self.target_net.parameters()):
+            if target_param.grad is not None:
+                if policy_param.grad is None:
+                    policy_param.grad = target_param.grad.clone()
+                else:
+                    policy_param.grad.add_(target_param.grad)
+
+        # 4) step policy optimizer (updates q_nn)
         self.q_optimizer.step()
 
-        # Optimize h-net
+        # ---- Update h_net (separately) ----
+        # Because h_loss used delta.detach(), its computational graph only depends on h_net parameters.
         self.h_optimizer.zero_grad()
         h_loss.backward()
         self.h_optimizer.step()
@@ -167,10 +166,9 @@ class QRCAgent:
         # Epsilon decay
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
-    # Target network update
+    # Target network update (hard update)
     def update_target(self):
         self.target_net.load_state_dict(self.q_nn.state_dict())
-
 
 class DQNAgent:
     def __init__(self, state_dim, action_dim, lr=1e-5, gamma=0.99, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01, buffer_size=50000, batch_size=64):
