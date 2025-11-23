@@ -7,6 +7,10 @@ def generate_seeds(n, seed_range=(0, 10000)):
 
 
 experiment = Experiment()
-seeds = generate_seeds(1000)
+seeds = generate_seeds(100)
 print("Running experiment with seeds:", seeds)
-experiment.run_agents_sequential_multiple_seeds(seeds=seeds)
+experiment.run_agents_sequential_multiple_seeds(
+    seeds=seeds,
+    qrc_file="qrc_results_8.txt",
+    dqn_file="dqn_results_8.txt"
+    )
