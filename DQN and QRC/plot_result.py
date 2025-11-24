@@ -140,8 +140,8 @@ def plot_drl_comparison(agent_data_list, smooth_window=50):
 #  EXECUTION
 # ============================
 
-dqn_file = "results/dqn - 100 Seeds.txt"
-qrc_file = "results/qrc - 100 Seeds.txt"
+dqn_file = "results/dqn - 20 Seeds.txt"
+qrc_file = "results/qrc -  20 Seeds.txt"
 
 # Blue for DQN, Red for QRC
 agents_to_compare = [

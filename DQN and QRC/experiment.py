@@ -19,7 +19,7 @@ class Experiment:
         epsilon_decay=0.99997,
         epsilon_min=0.01,
         batch_size=64,
-        target_update_freq=10,
+        target_update_freq=5,
         agent_name=QRC_AGENT
     ):
         self.num_episodes = num_episodes
@@ -163,10 +163,19 @@ class Experiment:
         return rewards
 
 
-    def run_multiple_visual(self, num_runs=5, seeds=None, smooth_window=50):
+    def run_multiple_visual(self, seeds, smooth_window=50):
         """Run multiple experiments and visualize mean ± std rewards (with optional smoothing)."""
-        avg_rewards, std_rewards, all_rewards = self.run_multiple(num_runs=num_runs, seeds=seeds)
-        
+        all_rewards = []
+
+        for seed in seeds:
+            print(f"\n===== Running Experiment with seed {seed} =====")
+            rewards = self.run_single(seed=seed)
+            all_rewards.append(rewards)
+
+        all_rewards = np.array(all_rewards)
+        avg_rewards = np.mean(all_rewards, axis=0)
+        std_rewards = np.std(all_rewards, axis=0)
+
         plt.figure(figsize=(14, 6))
         plt.plot(avg_rewards, label="Average Reward", alpha=0.5)
 
@@ -182,12 +191,17 @@ class Experiment:
 
         plt.xlabel("Episode")
         plt.ylabel("Total Reward")
-        plt.title(f"{self.agent_name} — Average Reward over {num_runs} Runs")
+        plt.title(f"{self.agent_name} — Average Reward over {len(seeds)} Seeds")
         plt.legend()
         plt.grid(True)
         plt.show()
 
-        return avg_rewards, std_rewards, all_rewards
+        return {
+            "seeds": seeds,
+            "avg_rewards": avg_rewards,
+            "std_rewards": std_rewards,
+            "all_rewards": all_rewards
+        }
 
     def run_agents_sequential_multiple_seeds(self, seeds, smooth_window=50, qrc_file="qrc.txt", dqn_file="dqn.txt"):
         """Run QRC and DQN sequentially across multiple seeds and plot comparison with smoothed curves."""
@@ -256,8 +270,8 @@ class Experiment:
                     if done:
                         break
 
-                if episode % self.target_update_freq == 0:
-                    qrc_agent.update_target()
+                # if episode % self.target_update_freq == 0:
+                #     qrc_agent.update_target()
                 qrc_rewards.append(total_reward)
                 print(f"[Seed {seed}] QRC Episode {episode:4d}/{self.num_episodes} | Reward: {total_reward:7.2f} | Loss: {self.recent_loss:.5f} | Epsilon: {qrc_agent.epsilon:.5f}")
 
