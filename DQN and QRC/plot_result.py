@@ -48,7 +48,7 @@ def plot_drl_comparison(agent_data_list, smooth_window=50):
     Plots DRL agent performance curves (avg + std + smoothed).
     agent_data_list: list of (filename, label, color)
     """
-    plt.figure(figsize=(16, 7))
+    plt.figure(figsize=(16, 5))
 
     processed_data = []
     max_episodes = 0
@@ -106,23 +106,23 @@ def plot_drl_comparison(agent_data_list, smooth_window=50):
         )
 
         # Raw average line
-        plt.plot(
-            x, data["avg"],
-            color=data["color"],
-            linewidth=1.5,
-            # linewidth=1,
-            # alpha=0.8,
-            label=f"{data['label']} Raw Avg"
-        )
+        # plt.plot(
+        #     x, data["avg"],
+        #     color=data["color"],
+        #     linewidth=1.5,
+        #     # linewidth=1,
+        #     # alpha=0.8,
+        #     label=f"{data['label']} Raw Avg"
+        # )
 
         # Smoothed line
-        # plt.plot(
-        #     data["x_smooth"],
-        #     data["smoothed"],
-        #     color=data["color"],
-        #     linewidth=3,
-        #     label=f"{data['label']} Smoothed (N={data['num_runs']})"
-        # )
+        plt.plot(
+            data["x_smooth"],
+            data["smoothed"],
+            color=data["color"],
+            linewidth=3,
+            label=f"{data['label']} Smoothed (N={data['num_runs']})"
+        )
 
     # Layout
     plt.title("DQN vs QRC Performance Comparison")
@@ -140,8 +140,8 @@ def plot_drl_comparison(agent_data_list, smooth_window=50):
 #  EXECUTION
 # ============================
 
-dqn_file = "results/dqn - 20 Seeds.txt"
-qrc_file = "results/qrc -  20 Seeds.txt"
+dqn_file = "results/dqn.txt"
+qrc_file = "results/qrc.txt"
 
 # Blue for DQN, Red for QRC
 agents_to_compare = [

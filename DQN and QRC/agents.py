@@ -12,17 +12,33 @@ class QRCAgent:
         self,
         state_dim,
         action_dim,
-        lr=1e-3,
+        lr=1e-3,               # Q-network step-size (α)
+        h_lr=1.0,               # h-network step-size (α_h)
         gamma=0.99,
         epsilon=1.0,
         epsilon_decay=0.995,
         epsilon_min=0.01,
         buffer_size=50000,
         batch_size=64,
-        beta=1,     # weight decay for h-net (small default)
+        beta=1,                 # regularization coef β
+        lambda_coef=0.8,        # λ coefficient for correction term
         device=None,
         seed=42
     ):
+        # Save parameters
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.lr = lr
+        self.h_lr = h_lr
+        self.gamma = gamma
+        self.lambda_coef = lambda_coef
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_min = epsilon_min
+        self.batch_size = batch_size
+        self.beta = beta
+
+        # Seeding
         self.seed = seed
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -30,20 +46,8 @@ class QRCAgent:
         if torch.cuda.is_available():
             torch.cuda.manual_seed(seed)
             torch.cuda.manual_seed_all(seed)
-        # Make CUDA operations deterministic (optional, may slow down training)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-
-        # Basic configs
-        self.state_dim = state_dim
-        self.action_dim = action_dim
-        self.lr = lr
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.batch_size = batch_size
-        self.beta = beta
 
         # Replay buffer
         self.memory = deque(maxlen=buffer_size)
@@ -51,18 +55,17 @@ class QRCAgent:
         # Device
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # Networks (simple MLPs)
-        self.q_nn = self.build_nn().to(self.device) # build q network
+        # Networks
+        self.q_nn = self.build_nn().to(self.device)
         self.h_net = self.build_nn().to(self.device)
 
         # Optimizers
         self.q_optimizer = optim.Adam(self.q_nn.parameters(), lr=self.lr)
-        self.h_optimizer = optim.AdamW(self.h_net.parameters(), lr=self.lr, weight_decay=self.beta)
+        self.h_optimizer = optim.AdamW(self.h_net.parameters(), lr=self.h_lr, weight_decay=self.beta)
 
         self.steps = 0
 
-    def build_nn(self): # to build the q network, 2 hiddne layer with relu and 128 neuronsin each
-        # torch.manual_seed(seed)
+    def build_nn(self):
         return nn.Sequential(
             nn.Linear(self.state_dim, 128),
             nn.ReLU(),
@@ -72,13 +75,12 @@ class QRCAgent:
         )
 
     def agent_policy(self, state):
-        """Epsilon-greedy"""
         if np.random.rand() < self.epsilon:
             return int(np.random.randint(self.action_dim))
 
-        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # (1, state_dim)
+        state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            q_values = self.q_nn(state_t)  # (1, action_dim)
+            q_values = self.q_nn(state_t)
         return int(q_values.argmax(dim=1).item())
 
     def remember(self, s, a, r, s2, done):
@@ -87,40 +89,37 @@ class QRCAgent:
     def compute_loss(self, batch):
         states, actions, rewards, next_states, dones = batch
 
-        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device)            
-        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)  
-        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)          
-        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)       
-        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)           
+        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device)
+        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)
+        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)
+        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
+        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-        # Current Q(s,a)
-        q_values = self.q_nn(states)                  
-        q_sa = q_values.gather(1, actions)            
+        # Q(s,a)
+        q_values = self.q_nn(states)
+        q_sa = q_values.gather(1, actions)
 
-        # Next Q from q_nn itself
+        # Q(s',a')
         next_q_vals = self.q_nn(next_states)
         next_q = next_q_vals.max(1)[0].unsqueeze(1)
 
-
-        # Standard TD target
+        # Standard TD error
         delta = (rewards + self.gamma * (1.0 - dones) * next_q.detach()) - q_sa
-
         delta_detached_for_h = delta.detach()
 
-        # Predict correction h(s,a)
-        h_values = self.h_net(states)                      
-        h_sa = h_values.gather(1, actions)                 
+        # h(s,a)
+        h_values = self.h_net(states)
+        h_sa = h_values.gather(1, actions)
 
-        # td_loss (0.5 * MSE)
-        td_loss = 0.5 * (delta.pow(2)).mean()
+        # -----------------------------
+        # Loss components
+        # -----------------------------
+        td_loss = 0.5 * delta.pow(2).mean()
 
-        # delta_hat (we detach h_sa for correction so the correction backward affects only target_net)
-        delta_hat_detached = h_sa.detach()
+        # λ * γ * h(s,a) * Q(s',a')
+        correction_term = self.lambda_coef * (self.gamma * h_sa.detach() * next_q).mean()
 
-        # correction term: gamma * <h, x> * Q(s', a')  -> next_q is from target_net (has grad)
-        correction_term = (self.gamma * delta_hat_detached * next_q).mean()
-
-        # h loss: regress h(s,a) to delta.detach()  (this uses delta_detached_for_h so no q-network graph)
+        # h-loss: regress h toward delta
         h_loss = 0.5 * ((delta_detached_for_h - h_sa).pow(2)).mean()
 
         return td_loss, correction_term, h_loss
@@ -132,36 +131,30 @@ class QRCAgent:
         batch = random.sample(self.memory, self.batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
-        # compute losses (td_loss, correction_term, h_loss)
         td_loss, correction_term, h_loss = self.compute_loss(
             (states, actions, rewards, next_states, dones)
         )
 
-        # zero grads on policy and target nets
+        # -----------------------------
+        # Update Q-network
+        # -----------------------------
         self.q_optimizer.zero_grad()
-
-        # 1) compute gradients for td_loss w.r.t policy network parameters
-        td_loss.backward(retain_graph=False)   # no need to retain graph, since h_loss does not use q-graph now
-
-        # 2) compute gradients for correction_term w.r.t target_net parameters
-        # (correction_term depends on next_q which comes from target_net)
-        correction_term.backward(retain_graph=False)
-
-        # 4) step policy optimizer (updates q_nn)
+        td_loss.backward(retain_graph=True)
+        correction_term.backward()
         self.q_optimizer.step()
 
-        # ---- Update h_net (separately) ----
-        # Because h_loss used delta.detach(), its computational graph only depends on h_net parameters.
+        # -----------------------------
+        # Update h-network
+        # -----------------------------
         self.h_optimizer.zero_grad()
         h_loss.backward()
         self.h_optimizer.step()
 
         # Epsilon decay
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-        overall_loss = td_loss.item() + correction_term.item() + h_loss.item()
-        return overall_loss
 
-    # Target network update (hard update)
+        return td_loss.item() + correction_term.item() + h_loss.item()
+
     def update_target(self):
         pass
 
@@ -170,7 +163,7 @@ class DQNAgent:
             self, 
             state_dim, 
             action_dim, 
-            lr=1e-5, 
+            lr=1e-3, 
             gamma=0.99, 
             epsilon=1.0, 
             epsilon_decay=0.995, 

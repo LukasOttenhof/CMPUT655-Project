@@ -108,8 +108,7 @@ class Experiment:
                 state = next_state
                 if done:
                     break
-
-            if episode % self.target_update_freq == 0:
+            if self.agent_name == DQN_Agent and episode % self.target_update_freq == 0:
                 agent.update_target()
 
             episode_rewards.append(total_reward)
@@ -204,14 +203,13 @@ class Experiment:
         }
 
     def run_agents_sequential_multiple_seeds(self, seeds, smooth_window=50, qrc_file="qrc.txt", dqn_file="dqn.txt"):
-        """Run QRC and DQN sequentially across multiple seeds and plot comparison with smoothed curves."""
         results = {"QRC_AGENT": [], "DQN_Agent": []}
 
         for run_idx, seed in enumerate(seeds):
             print(f"\n===== Running Seed {run_idx+1}/{len(seeds)}: {seed} =====")
             self.set_seed(seed)
 
-            # --- Initialize environment ---
+            # Initialize environment
             env = TruckBackerEnv_D(render_mode=None)
             if seed is not None:
                 env.seed(seed)
@@ -219,7 +217,7 @@ class Experiment:
             state_dim = env.observation_space.shape[0]
             action_dim = env.action_space.n
 
-            # --- Initialize agents ---
+            # Initialize agents
             qrc_agent = QRCAgent(
                 state_dim=state_dim,
                 action_dim=action_dim,
@@ -231,7 +229,6 @@ class Experiment:
                 batch_size=self.batch_size,
                 seed=seed
             )
-
             dqn_agent = DQNAgent(
                 state_dim=state_dim,
                 action_dim=action_dim,
@@ -270,12 +267,15 @@ class Experiment:
                     if done:
                         break
 
-                # if episode % self.target_update_freq == 0:
-                #     qrc_agent.update_target()
                 qrc_rewards.append(total_reward)
-                print(f"[Seed {seed}] QRC Episode {episode:4d}/{self.num_episodes} | Reward: {total_reward:7.2f} | Loss: {self.recent_loss:.5f} | Epsilon: {qrc_agent.epsilon:.5f}")
+                print(f"[Seed {seed}] QRC Episode {episode:4d}/{self.num_episodes} | "
+                    f"Reward: {total_reward:7.2f} | Loss: {self.recent_loss:.5f} | "
+                    f"Epsilon: {qrc_agent.epsilon:.5f}")
 
             results["QRC_AGENT"].append(qrc_rewards)
+
+            env.reset()
+            env.seed(seed)
 
             # --- Run DQN ---
             dqn_rewards = []
@@ -303,29 +303,32 @@ class Experiment:
                     if done:
                         break
 
+                # DQN updates target network periodically
                 if episode % self.target_update_freq == 0:
                     dqn_agent.update_target()
-                dqn_rewards.append(total_reward)
 
-                print(f"[Seed {seed}] DQN Episode {episode:4d}/{self.num_episodes} | Reward: {total_reward:7.2f} | Loss: {self.recent_loss:.5f} | Epsilon: {dqn_agent.epsilon:.5f}")
+                dqn_rewards.append(total_reward)
+                print(f"[Seed {seed}] DQN Episode {episode:4d}/{self.num_episodes} | "
+                    f"Reward: {total_reward:7.2f} | Loss: {self.recent_loss:.5f} | "
+                    f"Epsilon: {dqn_agent.epsilon:.5f}")
 
             results["DQN_Agent"].append(dqn_rewards)
 
-        # --- Aggregate results ---
+        # Aggregate results
         qrc_array = np.array(results["QRC_AGENT"])
         dqn_array = np.array(results["DQN_Agent"])
 
         qrc_avg = np.mean(qrc_array, axis=0)
         qrc_std = np.std(qrc_array, axis=0)
-
         dqn_avg = np.mean(dqn_array, axis=0)
         dqn_std = np.std(dqn_array, axis=0)
 
+        # Save results
         np.savetxt(qrc_file, qrc_array, fmt="%.5f")
         np.savetxt(dqn_file, dqn_array, fmt="%.5f")
-        # --- Plot comparison ---
-        plt.figure(figsize=(14, 6))
 
+        # Plot comparison
+        plt.figure(figsize=(14, 6))
         for name, avg, std in [("QRC_AGENT", qrc_avg, qrc_std), ("DQN_Agent", dqn_avg, dqn_std)]:
             plt.plot(avg, label=f"{name} Avg Reward", alpha=0.5)
             plt.fill_between(range(len(avg)), avg - std, avg + std, alpha=0.2)

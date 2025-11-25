@@ -7,7 +7,8 @@ def generate_seeds(n, seed_range=(0, 10000)):
 
 
 experiment = Experiment(agent_name=QRC_AGENT)
-seeds = generate_seeds(3)
+seeds = generate_seeds(100)
+print("Running experiment with seeds:", seeds)
 # experiment.run_single_visual(seed=seeds[0])
 experiment.run_multiple_visual(seeds=seeds)
 # print("Running experiment with seeds:", seeds)
