@@ -34,7 +34,7 @@ def set_global_seed(seed):
     torch.backends.cudnn.benchmark = False
 
     # Ensures deterministic algorithms wherever possible
-    torch.use_deterministic_algorithms(True)
+    torch.use_deterministic_algorithms(False)
 
 
 
@@ -134,7 +134,7 @@ seeds = [i for i in range(200)]
 
 all_rewards = []
 for seed in seeds:
-    print(f"\n========== RUN SEED = {seed} ==========\n")
+    print(f"========== RUN SEED = {seed} ==========")
     
     # Global RNGs
     set_global_seed(seed)
@@ -177,17 +177,17 @@ for seed in seeds:
             agent.update_target()
 
         episode_rewards.append(total_reward)
-        print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f}")
+      #  print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f}")
 
     # Store rewards for this seed
     all_rewards.append(episode_rewards)
     
 
 # Convert to NumPy array for easier aggregation
-all_rewards = np.array(all_rewards)  # shape = (num_seeds, num_episodes)
-torch.save(
-    {
-        "rewards": torch.tensor(all_rewards, dtype=torch.float32),
-    },
-    r"C:\Users\otten\Desktop\CMPUT655-Project\data\dqn_reward_seeds.pt"
-    )
+#all_rewards = np.array(all_rewards)  # shape = (num_seeds, num_episodes)
+    torch.save(
+        {
+            "rewards": torch.tensor(all_rewards, dtype=torch.float32),
+        },
+        r"C:\Users\otten\Desktop\CMPUT655-Project\data\dqn_reward_seeds.pt"
+        )
