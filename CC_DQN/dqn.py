@@ -2,14 +2,42 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os, shutil
 from tqdm import tqdm
-from rl_glue import RLGlue
-from tbu_gym.tbu_discrete import TruckBackerEnv_D
-import torch
+import seaborn as sns
+import random, numpy as np, torch
+from tbu_discrete import TruckBackerEnv_D
+import seaborn as sns
+import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import random
 from collections import deque
+
+
+def set_global_seed(seed):
+    # Python RNG
+    random.seed(seed)
+
+    # NumPy RNG
+    np.random.seed(seed)
+
+    # PyTorch CPU RNG
+    torch.manual_seed(seed)
+
+    # PyTorch GPU RNG
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    # cuDNN deterministic behavior
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    # Ensures deterministic algorithms wherever possible
+    torch.use_deterministic_algorithms(False)
+
+
+
 
 class DQNAgent:
     def __init__(self, state_dim, action_dim, lr=1e-5, gamma=0.99, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01, buffer_size=50000, batch_size=64):
@@ -22,14 +50,14 @@ class DQNAgent:
         self.batch_size = batch_size
         self.memory = deque(maxlen=buffer_size)
         # device, not needed, but needed if going on canada compute to specify gpu
-        #self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.device = torch.device("cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
         self.q_nn = self.build_nn().to(self.device) # build q network
         self.target_net = self.build_nn().to(self.device) # build target network
         self.target_net.load_state_dict(self.q_nn.state_dict()) # make target net same as q net. initialization is random so need this
         self.optimizer = optim.Adam(self.q_nn.parameters(), lr=lr) 
         
-    def build_nn(self): # to build the q network, 2 hiddne layer with relu and 128 neuronsin each
+    def build_nn(self): # to build the q network, 2 hidden layer with relu and 128 neurons in each
         return nn.Sequential(
             nn.Linear(self.state_dim, 128),
             nn.ReLU(),
@@ -50,7 +78,7 @@ class DQNAgent:
         self.memory.append((state, action, reward, next_state, done)) # store transition sars, done is if terminal state
     
     def train_with_mem(self): # train with experience from memory using batch size set in agent
-        if len(self.memory) < self.batch_size: # if not enought mem, could be changed to use what we have instead of skip
+        if len(self.memory) < self.batch_size: # if not enough mem, could be changed to use what we have instead of skip
             return
         batch = random.sample(self.memory, self.batch_size) # get batch
         states, actions, rewards, next_states, dones = zip(*batch) # get batch features
@@ -86,99 +114,80 @@ class DQNAgent:
     
     def update_target(self): # update target network replacing it with the current q network
         self.target_net.load_state_dict(self.q_nn.state_dict())
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from tbu_gym.tbu_discrete import TruckBackerEnv_D
-from tqdm import tqdm  # for live progress bar
 
 
-# Hyperparameters
+
+from tbu_discrete import TruckBackerEnv_D
 num_episodes = 1000
 max_steps_per_episode = 500
-gamma = 0.99
 learning_rate = 1e-3
-epsilon_start = 1.0
+epsilon_start = 0.5
 epsilon_decay = 0.99997
 epsilon_min = 0.01
 batch_size = 64
 target_update_freq = 5
 
-# for one session, this will be used by threads
-def run_single_experiment(seed=None):
-    if seed is not None:
-        np.random.seed(seed)
 
+seeds = [i for i in range(200)]
+
+
+
+all_rewards = []
+for seed in seeds:
+    print(f"========== RUN SEED = {seed} ==========")
+    
+    # Global RNGs
+    set_global_seed(seed)
+
+    # Environment
     env = TruckBackerEnv_D(render_mode=None)
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n
+    env.seed(seed)
+    env.action_space.seed(seed)
+    state = env.reset()
 
+    # Agent
     agent = DQNAgent(
-        state_dim=state_dim,
-        action_dim=action_dim,
-        lr=1e-3,
-        gamma=0.99,
-        epsilon=1.0,
-        epsilon_decay=0.99997,
-        epsilon_min=0.01,
-        batch_size=64
+        state_dim=env.observation_space.shape[0],
+        action_dim=env.action_space.n,
+        lr=learning_rate,
+        epsilon=epsilon_start,
+        epsilon_decay=epsilon_decay,
+        epsilon_min=epsilon_min,
+        batch_size=batch_size
     )
 
     episode_rewards = []
-    for episode in range(1, 1001):
+
+    for episode in range(1, num_episodes + 1):
+        env.seed(seed + episode)
         state = env.reset()
         total_reward = 0
 
-        for t in range(500):
+        for t in range(max_steps_per_episode):
             action = agent.agent_policy(state)
             next_state, reward, done, info = env.step(action)
-            total_reward += reward
             agent.remember(state, action, reward, next_state, done)
             agent.train_with_mem()
             state = next_state
+            total_reward += reward
             if done:
                 break
 
-        if episode % 5 == 0:
+        if episode % target_update_freq == 0:
             agent.update_target()
 
         episode_rewards.append(total_reward)
+      #  print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f}")
 
-    return np.array(episode_rewards)
+    # Store rewards for this seed
+    all_rewards.append(episode_rewards)
+    
 
-
-# --- Main execution guard (MUST HAVE ON WINDOWS) ---
-if __name__ == "__main__":
-    import multiprocessing
-    multiprocessing.freeze_support()  # <- recommended for Windows
-
-    num_runs = 200
-    num_threads = 8
-    all_results = []
-
-    print(f"Running {num_runs} experiments using {num_threads} threads")
-
-    with ProcessPoolExecutor(max_workers=num_threads) as executor:
-        futures = [executor.submit(run_single_experiment, seed=i) for i in range(num_runs)]
-        for f in tqdm(as_completed(futures), total=num_runs, desc="Training progress", ncols=100):
-            result = f.result()
-            all_results.append(result)
-
-    all_results = np.array(all_results)
-
-    mean_rewards = np.mean(all_results, axis=0)
-    ci_low = np.percentile(all_results, 10, axis=0)
-    ci_high = np.percentile(all_results, 90, axis=0)
-    episodes = np.arange(1, 1001)
-
-    sns.set(style="whitegrid")
-    plt.figure(figsize=(10, 6))
-    sns.lineplot(x=episodes, y=mean_rewards, label='Mean Reward')
-    plt.fill_between(episodes, ci_low, ci_high, alpha=0.3, label='95% CI')
-
-    plt.xlabel('Episode')
-    plt.ylabel('Total Reward')
-    plt.title('DQN Training on TruckBackerEnv_D (200 runs)')
-    plt.legend()
-    plt.show()
+# Convert to NumPy array for easier aggregation
+#all_rewards = np.array(all_rewards)  # shape = (num_seeds, num_episodes)
+    torch.save(
+        {
+            "rewards": torch.tensor(all_rewards, dtype=torch.float32),
+        },
+        r"C:\Users\otten\Desktop\CMPUT655-Project\data\dqn_reward_seeds.pt"
+        )
