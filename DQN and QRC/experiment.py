@@ -108,7 +108,7 @@ class Experiment:
                 state = next_state
                 if done:
                     break
-            if self.agent_name == DQN_Agent and episode % self.target_update_freq == 0:
+            if episode % self.target_update_freq == 0:
                 agent.update_target()
 
             episode_rewards.append(total_reward)
