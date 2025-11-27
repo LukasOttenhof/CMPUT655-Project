@@ -261,7 +261,7 @@ for seed in seeds:
     episode_rewards = []
 
     for episode in range(1, num_episodes + 1):
-        # env.seed(seed + episode)
+        env.seed(seed + episode)
         state = env.reset()
         total_reward = 0
 
@@ -289,7 +289,7 @@ for seed in seeds:
         {
             "rewards": torch.tensor(all_rewards, dtype=torch.float32),
         },
-        "../data/qrc_reward_seeds.pt"
+        "../data/qrc_reward_seeds_old.pt"
     )
 
 all_rewards = np.array(all_rewards)   # shape: (num_seeds, num_episodes)
