@@ -217,7 +217,7 @@ from tbu_discrete import TruckBackerEnv_D
 num_episodes = 1000
 max_steps_per_episode = 500
 learning_rate = 1e-3
-epsilon_start = 0.5
+epsilon_start = 1
 epsilon_decay = 0.99997
 epsilon_min = 0.01
 batch_size = 64
@@ -289,7 +289,7 @@ for seed in seeds:
         {
             "rewards": torch.tensor(all_rewards, dtype=torch.float32),
         },
-        "../data/qrc_reward_seeds_old.pt"
+        "../data/qrc_reward_seeds_cc.pt"
     )
 
 all_rewards = np.array(all_rewards)   # shape: (num_seeds, num_episodes)
