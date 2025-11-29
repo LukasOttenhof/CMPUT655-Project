@@ -213,114 +213,145 @@ class QRCAgent:
         self.target_net.load_state_dict(self.q_nn.state_dict())
 
 
-from tbu_discrete import TruckBackerEnv_D
+class Experiment:
+    def __init__(
+            self,
+            num_episodes = 1000,
+            max_steps_per_episode = 500,
+            learning_rate = 1e-3,
+            epsilon_start = 0.5,
+            epsilon_decay = 0.99997,
+            epsilon_min = 0.01,
+            batch_size = 64,
+            target_update_freq = 5,
+            beta = 1,
+            seed_num = 5,
+            save_path = "../data/qrc_reward_seeds.pt"
+            ):
+        self.num_episodes = num_episodes
+        self.max_steps_per_episode = max_steps_per_episode
+        self.learning_rate = learning_rate
+        self.epsilon_start = epsilon_start
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_min = epsilon_min
+        self.batch_size = batch_size
+        self.target_update_freq = target_update_freq
+        self.beta = beta
+        self.seed_num = seed_num
+        self.seeds = [i for i in range(seed_num)]
+        self.save_path = save_path
+
+    def run(self):
+        # os.makedirs("../data", exist_ok=True)
+        all_rewards = []
+        for seed in self.seeds:
+            print(f"========== RUN SEED = {seed} ==========")
+            
+            # Global RNGs
+            set_global_seed(seed)
+
+            # Environment
+            env = TruckBackerEnv_D(render_mode=None)
+            env.seed(seed)
+            env.action_space.seed(seed)
+            state = env.reset()
+            state_dim = env.observation_space.shape[0]
+            action_dim = env.action_space.n
+            # episode_rewards = []
+
+            # Agent
+            agent = QRCAgent(
+                state_dim=state_dim,
+                action_dim=action_dim,
+                lr=learning_rate,
+                epsilon=epsilon_start,
+                epsilon_decay=epsilon_decay,
+                epsilon_min=epsilon_min,
+                batch_size=batch_size,
+                seed=seed,
+                beta=self.beta
+            )
+
+            episode_rewards = []
+
+            for episode in range(1, num_episodes + 1):
+                env.seed(seed + episode)
+                state = env.reset()
+                total_reward = 0
+
+                for t in range(max_steps_per_episode):
+                    action = agent.agent_policy(state)
+                    next_state, reward, done, info = env.step(action)
+                    agent.remember(state, action, reward, next_state, done)
+                    agent.train_with_mem()
+                    state = next_state
+                    total_reward += reward
+                    if done:
+                        break
+
+                if episode % target_update_freq == 0:
+                    agent.update_target()
+
+                episode_rewards.append(total_reward)
+                print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
+
+            all_rewards.append(episode_rewards)
+
+            torch.save(
+                {"rewards": torch.tensor(all_rewards, dtype=torch.float32)},
+                self.save_path
+            )
+            print(f"Saved → {self.save_path}")
+
 num_episodes = 1000
 max_steps_per_episode = 500
 learning_rate = 1e-3
-epsilon_start = 1
+epsilon_start = 0.5
 epsilon_decay = 0.99997
 epsilon_min = 0.01
 batch_size = 64
 target_update_freq = 5
 
-
 seeds = [i for i in range(250)]
-# seeds = [i for i in range(10,20)]
 
+experiment_general = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=epsilon_start,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=target_update_freq,
+    save_path="../data/qrc_reward_seeds.pt"
+)
 
+experiment_epsilon = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=1,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=target_update_freq,
+    save_path="../data/qrc_reward_seeds_epsilon.pt"
+)
 
-os.makedirs("../data", exist_ok=True)
-all_rewards = []
-for seed in seeds:
-    print(f"========== RUN SEED = {seed} ==========")
-    
-    # Global RNGs
-    set_global_seed(seed)
+experiment_target_update_freq = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=epsilon_start,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=20,
+    save_path="data/qrc_reward_seeds_target_update.pt"
+)
 
-    # Environment
-    env = TruckBackerEnv_D(render_mode=None)
-    env.seed(seed)
-    env.action_space.seed(seed)
-    state = env.reset()
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.n
-    # episode_rewards = []
-
-    # Agent
-    agent = QRCAgent(
-        state_dim=state_dim,
-        action_dim=action_dim,
-        lr=learning_rate,
-        epsilon=epsilon_start,
-        epsilon_decay=epsilon_decay,
-        epsilon_min=epsilon_min,
-        batch_size=batch_size,
-        seed=seed
-    )
-
-    episode_rewards = []
-
-    for episode in range(1, num_episodes + 1):
-        env.seed(seed + episode)
-        state = env.reset()
-        total_reward = 0
-
-        for t in range(max_steps_per_episode):
-            action = agent.agent_policy(state)
-            next_state, reward, done, info = env.step(action)
-            agent.remember(state, action, reward, next_state, done)
-            agent.train_with_mem()
-            state = next_state
-            total_reward += reward
-            if done:
-                break
-
-        if episode % target_update_freq == 0:
-            agent.update_target()
-
-        episode_rewards.append(total_reward)
-        print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
-
-    # Store rewards for this seed
-    all_rewards.append(episode_rewards)
-
-
-    torch.save(
-        {
-            "rewards": torch.tensor(all_rewards, dtype=torch.float32),
-        },
-        "../data/qrc_reward_seeds_cc.pt"
-    )
-
-all_rewards = np.array(all_rewards)   # shape: (num_seeds, num_episodes)
-
-mean_rewards = np.mean(all_rewards, axis=0)
-std_rewards = np.std(all_rewards, axis=0)
-
-episodes = np.arange(1, num_episodes + 1)
-
-# 90% confidence interval
-ci_90 = 1.645 * (std_rewards / np.sqrt(len(seeds)))
-
-plt.figure(figsize=(12, 6))
-sns.lineplot(x=episodes, y=mean_rewards, label="Mean Reward", color="red")
-plt.fill_between(episodes, mean_rewards - ci_90, mean_rewards + ci_90,
-                 alpha=0.3, color="red", label="90% CI")
-
-plt.title("QRC Training Rewards seeds 0–250, 90% CI")
-plt.xlabel("Episode")
-plt.ylabel("Total Reward")
-plt.grid(True)
-plt.legend()
-plt.show()
-    
-
-# Convert to NumPy array for easier aggregation
-#all_rewards = np.array(all_rewards)  # shape = (num_seeds, num_episodes)
-    # torch.save(
-    #     {
-    #         "rewards": torch.tensor(all_rewards, dtype=torch.float32),
-    #     },
-    #     r"C:\Users\otten\Desktop\CMPUT655-Project\data\qrc_reward_seeds.pt"
-    #     )
+experiment_target_update_freq.run()
 
