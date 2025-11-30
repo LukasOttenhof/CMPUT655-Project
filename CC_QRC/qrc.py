@@ -353,5 +353,7 @@ experiment_target_update_freq = Experiment(
     save_path="data/qrc_reward_seeds_target_update.pt"
 )
 
+experiment_general.run()
+experiment_epsilon.run()
 experiment_target_update_freq.run()
 
