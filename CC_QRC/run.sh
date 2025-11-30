@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=train-large-bs4
-#SBATCH --gres=gpu:h100:1
+#SBATCH --gres=gpu:a100:1
 #SBATCH --time=20:00:00
 #SBATCH --mem=64G
 #SBATCH --output=output.log
