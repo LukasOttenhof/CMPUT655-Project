@@ -11,12 +11,12 @@ echo "starting job"
 
 nvidia-smi
 
-module load python/3.11
+module load python/3.11.5
 module load cuda/12.6
 virtualenv --no-download $SLURM_TMPDIR/cc
 source $SLURM_TMPDIR/cc/bin/activate
 pip install --no-index --upgrade pip
 pip install --no-index -r requirements.txt
-python3 CC_QRC/qrc.py
+python CC_QRC/qrc.py
 
 echo "finished"

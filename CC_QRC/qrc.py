@@ -212,6 +212,106 @@ class QRCAgent:
     def update_target(self):
         self.target_net.load_state_dict(self.q_nn.state_dict())
 
+class DQNAgent:
+    def __init__(
+            self, 
+            state_dim, 
+            action_dim, 
+            lr=1e-5, 
+            gamma=0.99, 
+            epsilon=1.0, 
+            epsilon_decay=0.995, 
+            epsilon_min=0.01, 
+            buffer_size=50000, 
+            batch_size=64,
+            seed=None
+            ):
+        if seed is not None:
+            self.seed = seed
+            torch.manual_seed(seed)
+            np.random.seed(seed)
+            random.seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(seed)
+                torch.cuda.manual_seed_all(seed)
+            # Make CUDA operations deterministic (optional, may slow down training)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+        else:
+            self.seed = None
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.epsilon_decay = epsilon_decay
+        self.epsilon_min = epsilon_min
+        self.batch_size = batch_size
+        self.memory = deque(maxlen=buffer_size)
+        # device, not needed, but needed if going on canada compute to specify gpu
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.q_nn = self.build_nn().to(self.device) # build q network
+        self.target_net = self.build_nn().to(self.device) # build target network
+        self.target_net.load_state_dict(self.q_nn.state_dict()) # make target net same as q net. initialization is random so need this
+        self.optimizer = optim.Adam(self.q_nn.parameters(), lr=lr) 
+        
+    def build_nn(self): # to build the q network, 2 hidden layer with relu and 128 neurons in each
+        return nn.Sequential(
+            nn.Linear(self.state_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, self.action_dim)
+        )
+    
+    def agent_policy(self, state): # act e greedy
+        if np.random.rand() < self.epsilon:
+            return np.random.randint(self.action_dim) # rand action
+        state = torch.FloatTensor(state).unsqueeze(0).to(self.device) # convert state to tensor, then add batch dimension, then move to device
+        with torch.no_grad(): # dont calculate gradients, no need
+            q_values = self.q_nn(state)
+        return q_values.argmax().item()
+    
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done)) # store transition sars, done is if terminal state
+    
+    def train_with_mem(self): # train with experience from memory using batch size set in agent
+        if len(self.memory) < self.batch_size: # if not enough mem, could be changed to use what we have instead of skip
+            return
+        batch = random.sample(self.memory, self.batch_size) # get batch
+        states, actions, rewards, next_states, dones = zip(*batch) # get batch features
+
+        # convert data to tensors which can be used by pytorch
+        states = torch.tensor(np.stack(states), dtype=torch.float32).to(self.device) 
+        next_states = torch.tensor(np.stack(next_states), dtype=torch.float32).to(self.device)
+        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1).to(self.device)
+        rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
+        dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+
+        # get current q values from q network
+        q_values = self.q_nn(states).gather(1, actions)
+
+        # use the samples from experience batch to calc target network q values
+        with torch.no_grad(): # no need to calc gradients for target
+            next_q_values = self.target_net(next_states).max(1, keepdim=True)[0]  
+        # target = r + gamma * max_a' Q(s', a') * (1 - done)
+        target = rewards + self.gamma * next_q_values * (1 - dones)
+
+        # mean squared error 
+        errors = target - q_values
+        squared_errors = errors ** 2
+        mean_squared_error = torch.mean(squared_errors)
+
+        self.optimizer.zero_grad()
+        mean_squared_error.backward()
+        self.optimizer.step()
+ 
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay 
+
+    
+    def update_target(self): # update target network replacing it with the current q network
+        self.target_net.load_state_dict(self.q_nn.state_dict())
 
 class Experiment:
     def __init__(
@@ -226,6 +326,7 @@ class Experiment:
             target_update_freq = 5,
             beta = 1,
             seed_num = 5,
+            agent_type = "QRC",
             save_path = "../data/qrc_reward_seeds.pt"
             ):
         self.num_episodes = num_episodes
@@ -240,12 +341,13 @@ class Experiment:
         self.seed_num = seed_num
         self.seeds = [i for i in range(seed_num)]
         self.save_path = save_path
+        self.agent_type = agent_type
 
     def run(self):
         # os.makedirs("../data", exist_ok=True)
         all_rewards = []
         for seed in self.seeds:
-            print(f"========== RUN SEED = {seed} ==========")
+            print(f"========== RUN {self.agent_type} SEED = {seed} ==========")
             
             # Global RNGs
             set_global_seed(seed)
@@ -260,17 +362,29 @@ class Experiment:
             # episode_rewards = []
 
             # Agent
-            agent = QRCAgent(
-                state_dim=state_dim,
-                action_dim=action_dim,
-                lr=learning_rate,
-                epsilon=epsilon_start,
-                epsilon_decay=epsilon_decay,
-                epsilon_min=epsilon_min,
-                batch_size=batch_size,
-                seed=seed,
-                beta=self.beta
-            )
+            if self.agent_type == "DQN":
+                agent = DQNAgent(
+                    state_dim=state_dim,
+                    action_dim=action_dim,
+                    lr=self.learning_rate,
+                    epsilon=self.epsilon_start,
+                    epsilon_decay=self.epsilon_decay,
+                    epsilon_min=self.epsilon_min,
+                    batch_size=self.batch_size,
+                    seed=seed
+                )
+            else:
+                agent = QRCAgent(
+                    state_dim=state_dim,
+                    action_dim=action_dim,
+                    lr=learning_rate,
+                    epsilon=epsilon_start,
+                    epsilon_decay=epsilon_decay,
+                    epsilon_min=epsilon_min,
+                    batch_size=batch_size,
+                    seed=seed,
+                    beta=self.beta
+                )
 
             episode_rewards = []
 
@@ -324,7 +438,7 @@ experiment_general = Experiment(
     batch_size=batch_size,
     seed_num=250,
     target_update_freq=target_update_freq,
-    save_path="../data/qrc_reward_seeds.pt"
+    save_path="data/qrc_reward_seeds.pt"
 )
 
 experiment_epsilon = Experiment(
@@ -337,7 +451,7 @@ experiment_epsilon = Experiment(
     batch_size=batch_size,
     seed_num=250,
     target_update_freq=target_update_freq,
-    save_path="../data/qrc_reward_seeds_epsilon.pt"
+    save_path="data/qrc_reward_seeds_epsilon.pt"
 )
 
 experiment_target_update_freq = Experiment(
@@ -356,4 +470,35 @@ experiment_target_update_freq = Experiment(
 experiment_general.run()
 experiment_epsilon.run()
 experiment_target_update_freq.run()
+
+experiment_dqn_epsilon = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=1,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=target_update_freq,
+    agent_type="DQN",
+    save_path="data/dqn_reward_seeds_epsilon.pt"
+)
+
+experiment_dqn_target_update_freq = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=epsilon_start,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=20,
+    agent_type="DQN",
+    save_path="data/dqn_reward_seeds_target_update.pt"
+)
+
+experiment_dqn_epsilon.run()
+experiment_dqn_target_update_freq.run()
 
