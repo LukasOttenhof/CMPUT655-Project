@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=train-large-bs4
+#SBATCH --job-name=train-dqn-epsilon
 #SBATCH --account=def-cepp
 #SBATCH --gres=gpu:nvidia_h100_80gb_hbm3_1g.10gb:1
 #SBATCH --cpus-per-task=12
-#SBATCH --time=20:00:00
+#SBATCH --time=18:00:00
 #SBATCH --output=output.log
 #SBATCH --mail-user=rany@ualberta.ca
 #SBATCH --mail-type=END

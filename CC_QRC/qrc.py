@@ -409,7 +409,7 @@ class Experiment:
                     agent.update_target()
 
                 episode_rewards.append(total_reward)
-                print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
+                # print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
 
             all_rewards.append(episode_rewards)
 
@@ -417,7 +417,7 @@ class Experiment:
                 {"rewards": torch.tensor(all_rewards, dtype=torch.float32)},
                 self.save_path
             )
-            print(f"Saved → {self.save_path}")
+            # print(f"Saved → {self.save_path}")
 
 num_episodes = 1000
 max_steps_per_episode = 500
@@ -430,7 +430,7 @@ target_update_freq = 5
 
 seeds = [i for i in range(250)]
 
-experiment_general = Experiment(
+experiment_qrc_general = Experiment(
     num_episodes=num_episodes,
     max_steps_per_episode=max_steps_per_episode,
     learning_rate=learning_rate,
@@ -443,7 +443,7 @@ experiment_general = Experiment(
     save_path="data/qrc_reward_seeds.pt"
 )
 
-experiment_epsilon = Experiment(
+experiment_qrc_epsilon = Experiment(
     num_episodes=num_episodes,
     max_steps_per_episode=max_steps_per_episode,
     learning_rate=learning_rate,
@@ -456,7 +456,7 @@ experiment_epsilon = Experiment(
     save_path="data/qrc_reward_seeds_epsilon.pt"
 )
 
-experiment_target_update_freq = Experiment(
+experiment_qrc_target_update_freq = Experiment(
     num_episodes=num_episodes,
     max_steps_per_episode=max_steps_per_episode,
     learning_rate=learning_rate,
@@ -468,10 +468,6 @@ experiment_target_update_freq = Experiment(
     target_update_freq=20,
     save_path="data/qrc_reward_seeds_target_update.pt"
 )
-
-experiment_general.run()
-experiment_epsilon.run()
-experiment_target_update_freq.run()
 
 experiment_dqn_epsilon = Experiment(
     num_episodes=num_episodes,
@@ -501,6 +497,10 @@ experiment_dqn_target_update_freq = Experiment(
     save_path="data/dqn_reward_seeds_target_update.pt"
 )
 
+
+# experiment_qrc_general.run()
+# experiment_qrc_epsilon.run()
+# experiment_qrc_target_update_freq.run()
 experiment_dqn_epsilon.run()
-experiment_dqn_target_update_freq.run()
+# experiment_dqn_target_update_freq.run()
 
