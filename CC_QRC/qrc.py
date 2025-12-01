@@ -80,7 +80,8 @@ class QRCAgent:
         self.memory = deque(maxlen=buffer_size)
 
         # Device
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda")
 
         # Networks (simple MLPs)
         self.q_nn = self.build_nn(output_dim=action_dim).to(self.device)
@@ -248,7 +249,8 @@ class DQNAgent:
         self.batch_size = batch_size
         self.memory = deque(maxlen=buffer_size)
         # device, not needed, but needed if going on canada compute to specify gpu
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda")
         
         self.q_nn = self.build_nn().to(self.device) # build q network
         self.target_net = self.build_nn().to(self.device) # build target network
