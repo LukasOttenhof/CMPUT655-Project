@@ -379,11 +379,11 @@ class Experiment:
                 agent = QRCAgent(
                     state_dim=state_dim,
                     action_dim=action_dim,
-                    lr=learning_rate,
-                    epsilon=epsilon_start,
-                    epsilon_decay=epsilon_decay,
-                    epsilon_min=epsilon_min,
-                    batch_size=batch_size,
+                    lr=self.learning_rate,
+                    epsilon=self.epsilon_start,
+                    epsilon_decay=self.epsilon_decay,
+                    epsilon_min=self.epsilon_min,
+                    batch_size=self.batch_size,
                     seed=seed,
                     beta=self.beta
                 )
