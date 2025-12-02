@@ -409,7 +409,7 @@ class Experiment:
                     agent.update_target()
 
                 episode_rewards.append(total_reward)
-                # print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
+                print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
 
             all_rewards.append(episode_rewards)
 
@@ -449,11 +449,11 @@ experiment_qrc_epsilon = Experiment(
     learning_rate=learning_rate,
     epsilon_start=1,
     epsilon_decay=epsilon_decay,
-    epsilon_min=epsilon_min,
+    epsilon_min=0.5,
     batch_size=batch_size,
     seed_num=250,
     target_update_freq=target_update_freq,
-    save_path="data/qrc_reward_seeds_epsilon.pt"
+    save_path="data/qrc_reward_seeds_epsilon_min_half.pt"
 )
 
 experiment_qrc_target_update_freq = Experiment(
@@ -475,12 +475,12 @@ experiment_dqn_epsilon = Experiment(
     learning_rate=learning_rate,
     epsilon_start=1,
     epsilon_decay=epsilon_decay,
-    epsilon_min=epsilon_min,
+    epsilon_min=0.5,
     batch_size=batch_size,
     seed_num=250,
     target_update_freq=target_update_freq,
     agent_type="DQN",
-    save_path="data/dqn_reward_seeds_epsilon.pt"
+    save_path="data/dqn_reward_seeds_epsilon_min_half.pt"
 )
 
 experiment_dqn_target_update_freq = Experiment(
@@ -501,6 +501,35 @@ experiment_dqn_target_update_freq = Experiment(
 # experiment_qrc_general.run()
 # experiment_qrc_epsilon.run()
 # experiment_qrc_target_update_freq.run()
-experiment_dqn_epsilon.run()
+# experiment_dqn_epsilon.run()
 # experiment_dqn_target_update_freq.run()
 
+experiment_qrc_target_update_freq_2 = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=epsilon_start,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=2,
+    save_path="data/qrc_reward_seeds_target_update_2.pt"
+)
+
+experiment_dqn_target_update_freq_2 = Experiment(
+    num_episodes=num_episodes,
+    max_steps_per_episode=max_steps_per_episode,
+    learning_rate=learning_rate,
+    epsilon_start=epsilon_start,
+    epsilon_decay=epsilon_decay,
+    epsilon_min=epsilon_min,
+    batch_size=batch_size,
+    seed_num=250,
+    target_update_freq=2,
+    agent_type="DQN",
+    save_path="data/dqn_reward_seeds_target_update_2.pt"
+)
+
+# experiment_qrc_target_update_freq_2.run()
+experiment_dqn_target_update_freq_2.run()
