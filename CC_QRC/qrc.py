@@ -391,7 +391,8 @@ class Experiment:
             episode_rewards = []
 
             for episode in range(1, num_episodes + 1):
-                env.seed(seed + episode)
+                env.seed(seed)
+                # env.seed(seed + episode)
                 state = env.reset()
                 total_reward = 0
 
