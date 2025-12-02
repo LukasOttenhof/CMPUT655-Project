@@ -56,4 +56,5 @@ def plot_rewards(name="QRC", pt_file="data/qrc_reward_seeds.pt"):
 
 # plot_rewards()
 # plot_rewards(pt_file="data/qrc_reward_seeds_target_update.pt")
-plot_rewards(name="DQN", pt_file="data/dqn_reward_seeds_target_update.pt")
+plot_rewards(name="DQN Target Network", pt_file="data/dqn_reward_seeds_target_update.pt")
+plot_rewards(name="DQN Epsilon", pt_file="data/dqn_reward_seeds_epsilon.pt")
