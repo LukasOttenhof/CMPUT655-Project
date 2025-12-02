@@ -428,7 +428,11 @@ epsilon_min = 0.01
 batch_size = 64
 target_update_freq = 5
 
-seeds = [i for i in range(250)]
+# seeds = [i for i in range(250)]
+def generate_seeds(n, low=0, high=10_000_000):
+    return [random.randint(low, high) for _ in range(n)]
+
+seeds = generate_seeds
 
 experiment_qrc_general = Experiment(
     num_episodes=num_episodes,
@@ -440,7 +444,7 @@ experiment_qrc_general = Experiment(
     batch_size=batch_size,
     seed_num=250,
     target_update_freq=target_update_freq,
-    save_path="data/qrc_reward_seeds.pt"
+    save_path="data/qrc_reward_seeds_new.pt"
 )
 
 experiment_qrc_epsilon = Experiment(
@@ -498,7 +502,7 @@ experiment_dqn_target_update_freq = Experiment(
 )
 
 
-# experiment_qrc_general.run()
+experiment_qrc_general.run()
 # experiment_qrc_epsilon.run()
 # experiment_qrc_target_update_freq.run()
 # experiment_dqn_epsilon.run()
