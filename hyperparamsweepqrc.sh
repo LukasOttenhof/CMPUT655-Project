@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=qrchyperparam
+#SBATCH --job-name=qrc_hyperparam
 #SBATCH --gres=gpu:l40s:1
 #SBATCH --time=20:00:00
 #SBATCH --cpus-per-task=12
