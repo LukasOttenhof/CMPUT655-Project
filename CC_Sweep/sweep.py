@@ -10,6 +10,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -45,7 +46,22 @@ def sample_config(base, space, rng):
     
     return config
 
+def print_device_once():
+    # Guard to avoid repeated prints per worker
+    if os.environ.get("CUDA_DEVICE_PRINTED") == "1":
+        return
+    os.environ["CUDA_DEVICE_PRINTED"] = "1"
+    try:
+        # This happens inside the spawned worker, which is safe
+        using_cuda = torch.cuda.is_available()
+        dev_name = torch.cuda.get_device_name(0) if using_cuda else "CPU"
+        print(f"[worker {os.getpid()}] Device: {'CUDA' if using_cuda else 'CPU'} ({dev_name})")
+    except Exception as e:
+        print(f"[worker {os.getpid()}] Device check failed: {e}")
+
+
 def run_single_dqn(config, save_dir):
+    print_device_once()
     set_seed_dqn(config["seed"])
     env = TruckBackerEnv_D(render_mode=None)
     env.seed(config["seed"])
@@ -99,6 +115,7 @@ def run_single_dqn(config, save_dir):
     return result
 
 def run_single_qrc(config, save_dir):
+    print_device_once()
     set_seed_qrc(config["seed"])
     env = TruckBackerEnv_D(render_mode=None)
     env.seed(config["seed"])
@@ -171,7 +188,6 @@ def main():
     random.seed(resolved_seed)
     
     os.makedirs(args.output, exist_ok=True)
-    print(f"Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
     print(f"Saving to: {args.output}")
     
     base = {
@@ -245,7 +261,8 @@ def main():
                 run_config["seed"] = i + rep * args.seeds
                 yield run_config
     
-    with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+    ctx = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(max_workers=args.jobs, mp_context=ctx) as executor:
         in_flight = set()
         task_iter = iter_tasks()
         
