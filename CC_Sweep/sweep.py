@@ -231,22 +231,38 @@ def main():
         config["config_id"] = "cfg_" + "_".join(f"{k}={id_fields[k]}" for k in sorted(id_fields.keys()))
         
         return config
-    
-    tasks = []
-    for i in range(args.seeds):
-        config = make_config(i)
-        for rep in range(args.replicates):
-            run_config = dict(config)
-            run_config["rep_index"] = rep
-            run_config["seed"] = i + rep * args.seeds
-            tasks.append(run_config)
-    
+
     start = time.time()
     all_results = []
+    max_in_flight = args.jobs * 2
+    
+    def iter_tasks():
+        for i in range(args.seeds):
+            config = make_config(i)
+            for rep in range(args.replicates):
+                run_config = dict(config)
+                run_config["rep_index"] = rep
+                run_config["seed"] = i + rep * args.seeds
+                yield run_config
+    
     with ProcessPoolExecutor(max_workers=args.jobs) as executor:
-        futures = [executor.submit(run_function, task, args.output) for task in tasks]
-        for future in as_completed(futures):
-            all_results.append(future.result())
+        in_flight = set()
+        task_iter = iter_tasks()
+        
+        try:
+            while len(in_flight) < max_in_flight:
+                in_flight.add(executor.submit(run_function, next(task_iter), args.output))
+        except StopIteration:
+            pass
+        
+        while in_flight:
+            done = next(as_completed(in_flight))
+            all_results.append(done.result())
+            in_flight.remove(done)
+            try:
+                in_flight.add(executor.submit(run_function, next(task_iter), args.output))
+            except StopIteration:
+                pass
     
     summary_by_config = {}
     rep_config = {}
