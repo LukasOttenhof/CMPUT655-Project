@@ -26,21 +26,22 @@ def sample_config(base, space, rng):
     
     def log_uniform(lo, hi):
         return 10 ** (rng.uniform(math.log10(lo), math.log10(hi)))
+
+    def pick(val):
+        # If the space entry is a list, pick a discrete choice; otherwise sample log-uniform
+        return rng.choice(val) if isinstance(val, list) else log_uniform(*val)
     
-    def choice(vals):
-        return rng.choice(vals)
-    
-    config["learning_rate"] = log_uniform(*space["learning_rate"])
-    config["epsilon_start"] = choice(space["epsilon_start"])
-    config["epsilon_decay"] = choice(space["epsilon_decay"])
-    config["epsilon_min"] = choice(space["epsilon_min"])
-    config["batch_size"] = choice(space["batch_size"])
-    config["buffer_size"] = choice(space["buffer_size"])
-    config["gamma"] = choice(space["gamma"])
-    config["target_update_freq"] = choice(space["target_update_freq"])
+    config["learning_rate"] = pick(space["learning_rate"])
+    config["epsilon_start"] = pick(space["epsilon_start"])
+    config["epsilon_decay"] = pick(space["epsilon_decay"])
+    config["epsilon_min"] = pick(space["epsilon_min"])
+    config["batch_size"] = pick(space["batch_size"])
+    config["buffer_size"] = pick(space["buffer_size"])
+    config["gamma"] = pick(space["gamma"])
+    config["target_update_freq"] = pick(space["target_update_freq"])
     
     if "beta" in space:
-        config["beta"] = choice(space["beta"]) if isinstance(space["beta"], list) else log_uniform(*space["beta"])
+        config["beta"] = pick(space["beta"])
     
     return config
 
