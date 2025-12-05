@@ -10,7 +10,6 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import multiprocessing
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -59,9 +58,9 @@ def print_device_once():
     except Exception as e:
         print(f"[worker {os.getpid()}] Device check failed: {e}")
 
-
 def run_single_dqn(config, save_dir):
-    print_device_once()
+    if config.get("verbose", True):
+        print_device_once()
     set_seed_dqn(config["seed"])
     env = TruckBackerEnv_D(render_mode=None)
     env.seed(config["seed"])
@@ -80,7 +79,7 @@ def run_single_dqn(config, save_dir):
     )
     
     episode_rewards = []
-    with tqdm(total=config["num_episodes"], desc=f"DQN seed {config['seed']}", leave=False) as pbar:
+    with tqdm(total=config["num_episodes"], desc=f"DQN seed {config['seed']}", leave=False, disable=not config.get("verbose", False)) as pbar:
         for episode in range(1, config["num_episodes"] + 1):
             env.seed(config["seed"] + episode)
             state = env.reset()
@@ -115,7 +114,8 @@ def run_single_dqn(config, save_dir):
     return result
 
 def run_single_qrc(config, save_dir):
-    print_device_once()
+    if config.get("verbose", True):
+        print_device_once()
     set_seed_qrc(config["seed"])
     env = TruckBackerEnv_D(render_mode=None)
     env.seed(config["seed"])
@@ -135,7 +135,7 @@ def run_single_qrc(config, save_dir):
     )
     
     episode_rewards = []
-    with tqdm(total=config["num_episodes"], desc=f"QRC seed {config['seed']}", leave=False) as pbar:
+    with tqdm(total=config["num_episodes"], desc=f"QRC seed {config['seed']}", leave=False, disable=not config.get("verbose", False)) as pbar:
         for episode in range(1, config["num_episodes"] + 1):
             env.seed(config["seed"] + episode)
             state = env.reset()
@@ -178,6 +178,7 @@ def main():
     parser.add_argument("--replicates", type=int, default=30) # seeds per ... seed, I guess
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     parser.add_argument("--seed", type=int, default=None) # random
+    parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     
     resolved_seed = args.seed if args.seed is not None else secrets.randbits(32)
@@ -187,6 +188,9 @@ def main():
     torch.manual_seed(resolved_seed)
     random.seed(resolved_seed)
     
+    if args.verbose:
+        os.environ["SWEEP_VERBOSE"] = "1"
+    
     os.makedirs(args.output, exist_ok=True)
     print(f"Saving to: {args.output}")
     
@@ -194,6 +198,7 @@ def main():
         "num_episodes": args.episodes,
         "max_steps_per_episode": args.steps,
         "seed": 0,
+        "verbose": args.verbose
     }
     
     dqn_space = {
@@ -261,8 +266,7 @@ def main():
                 run_config["seed"] = i + rep * args.seeds
                 yield run_config
     
-    ctx = multiprocessing.get_context("spawn")
-    with ProcessPoolExecutor(max_workers=args.jobs, mp_context=ctx) as executor:
+    with ProcessPoolExecutor(max_workers=args.jobs) as executor:
         in_flight = set()
         task_iter = iter_tasks()
         
