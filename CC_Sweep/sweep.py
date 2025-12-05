@@ -211,7 +211,24 @@ def main():
         rng_seed = (resolved_seed ^ (i + 0x9E3779B9)) & 0xFFFFFFFF
         rng = random.Random(rng_seed)
         config = sample_config(base, space, rng)
-        config["config_id"] = i
+        config["seed"] = i
+
+        id_fields = {
+            "learning_rate": config["learning_rate"],
+            "epsilon_start": config["epsilon_start"],
+            "epsilon_decay": config["epsilon_decay"],
+            "epsilon_min": config["epsilon_min"],
+            "batch_size": config["batch_size"],
+            "buffer_size": config["buffer_size"],
+            "gamma": config["gamma"],
+            "target_update_freq": config["target_update_freq"],
+        }
+        
+        if "beta" in config:
+            id_fields["beta"] = config["beta"]
+
+        config["config_id"] = "cfg_" + "_".join(f"{k}={id_fields[k]}" for k in sorted(id_fields.keys()))
+        
         return config
     
     tasks = []
@@ -231,16 +248,31 @@ def main():
             all_results.append(future.result())
     
     summary_by_config = {}
+    rep_config = {}
     for r in all_results:
-        cid = r["config"]["config_id"]
+        cfg = r.get("config", {})
+        cid = cfg.get("config_id")
         summary_by_config.setdefault(cid, []).append(r["mean_reward"])
+        rep_config.setdefault(cid, {k: v for k, v in cfg.items()
+                                    if k in ("learning_rate","epsilon_start","epsilon_decay","epsilon_min",
+                                             "batch_size","buffer_size","gamma","target_update_freq","beta")})
+
+    mean_reward_per_config = {cid: float(np.mean(v)) for cid, v in summary_by_config.items()}
+    best_cid = max(mean_reward_per_config, key=mean_reward_per_config.get) if mean_reward_per_config else None
+    best_mean_reward = mean_reward_per_config.get(best_cid, None)
+    best_hyperparams = rep_config.get(best_cid, None)
+    
     summary = {
         "agent": args.agent,
         "count": len(all_results),
         "replicates": args.replicates,
-        "best_mean_reward": max((float(np.mean(v)) for v in summary_by_config.values()), default=None),
+        "replicates_per_config": {cid: len(v) for cid, v in summary_by_config.items()},
+        "mean_reward_per_config": mean_reward_per_config,
+        "best_config_id": best_cid,
+        "best_mean_reward": best_mean_reward,
+        "best_hyperparameters": best_hyperparams,
         "results": all_results,
-        "elapsed_time": time.time() - start
+        "elapsed_time": time.time() - start,
     }
     
     summary_path = os.path.join(args.output, f"{args.agent}_random_summary.json")
