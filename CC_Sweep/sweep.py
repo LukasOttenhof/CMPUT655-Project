@@ -1,0 +1,253 @@
+﻿import argparse
+import os
+import sys
+import random
+import secrets
+import time
+import json
+import math
+import torch
+import numpy as np
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from matplotlib.widgets import EllipseSelector
+
+from CC_DQN.dqn import DQNAgent, set_global_seed as set_seed_dqn
+from CC_QRC.qrc import QRCAgent, set_global_seed as set_seed_qrc
+from tbu_discrete import TruckBackerEnv_D
+
+def sample_config(base, space, rng):
+    config = dict(base)
+    
+    def log_uniform(lo, hi):
+        return 10 ** (rng.uniform(math.log10(lo), math.log10(hi)))
+    
+    def choice(vals):
+        return rng.choice(vals)
+    
+    config["learning_rate"] = log_uniform(*space["learning_rate"])
+    config["epsilon_start"] = choice(space["epsilon_start"])
+    config["epsilon_decay"] = choice(space["epsilon_decay"])
+    config["epsilon_min"] = choice(space["epsilon_min"])
+    config["batch_size"] = choice(space["batch_size"])
+    config["buffer_size"] = choice(space["buffer_size"])
+    config["gamma"] = choice(space["gamma"])
+    config["target_update_freq"] = choice(space["target_update_freq"])
+    
+    if "beta" in space:
+        config["beta"] = choice(space["beta"]) if isinstance(space["beta"], list) else log_uniform(*space["beta"])
+    
+    return config
+
+def run_single_dqn(config, save_dir):
+    set_seed_dqn(config["seed"])
+    env = TruckBackerEnv_D(render_mode=None)
+    env.seed(config["seed"])
+    env.action_space.seed(config["seed"])
+    
+    agent = DQNAgent(
+        state_dim=env.observation_space.shape[0],
+        action_dim=env.action_space.n,
+        lr=config["learning_rate"],
+        epsilon=config["epsilon_start"],
+        epsilon_decay=config["epsilon_decay"],
+        epsilon_min=config["epsilon_min"],
+        batch_size=config["batch_size"],
+        buffer_size=config["buffer_size"],
+        gamma=config["gamma"]
+    )
+    
+    episode_rewards = []
+    with tqdm(total=config["num_episodes"], desc=f"DQN seed {config['seed']}", leave=False) as pbar:
+        for episode in range(1, config["num_episodes"] + 1):
+            env.seed(config["seed"] + episode)
+            state = env.reset()
+            total_reward = 0
+            
+            for t in range(config["max_steps_per_episode"]):
+                action = agent.agent_policy(state)
+                next_state, reward, done, info = env.step(action)
+                agent.remember(state, action, reward, next_state, done)
+                agent.train_with_mem()
+                state = next_state
+                total_reward += reward
+                if done:
+                    break
+                    
+            if episode % config["target_update_freq"] == 0:
+                agent.update_target()
+            episode_rewards.append(total_reward)
+            pbar.update(1)
+        
+    result = {
+        "config": config,
+        "mean_reward": float(np.mean(episode_rewards)),
+        "std_reward": float(np.std(episode_rewards)),
+    }
+    
+    run_id = f"dqn_{config['seed']}_{int(config['learning_rate']*1e6)}_{config['batch_size']}"
+    torch.save({"rewards": torch.tensor(episode_rewards, dtype=torch.float32)}, 
+               os.path.join(save_dir, run_id + ".pt"))
+    with open(os.path.join(save_dir, run_id + ".json"), "w") as f:
+        json.dump(result, f, indent=2)
+    return result
+
+def run_single_qrc(config, save_dir):
+    set_seed_qrc(config["seed"])
+    env = TruckBackerEnv_D(render_mode=None)
+    env.seed(config["seed"])
+    env.action_space.seed(config["seed"])
+    
+    agent = QRCAgent(
+        state_dim=env.observation_space.shape[0],
+        action_dim=env.action_space.n,
+        lr=config["learning_rate"],
+        epsilon=config["epsilon_start"],
+        epsilon_decay=config["epsilon_decay"],
+        epsilon_min=config["epsilon_min"],
+        batch_size=config["batch_size"],
+        buffer_size=config["buffer_size"],
+        gamma=config["gamma"],
+        beta=config["beta"]
+    )
+    
+    episode_rewards = []
+    with tqdm(total=config["num_episodes"], desc=f"QRC seed {config['seed']}", leave=False) as pbar:
+        for episode in range(1, config["num_episodes"] + 1):
+            env.seed(config["seed"] + episode)
+            state = env.reset()
+            total_reward = 0
+    
+            for t in range(config["max_steps_per_episode"]):
+                action = agent.agent_policy(state)
+                next_state, reward, done, info = env.step(action)
+                agent.remember(state, action, reward, next_state, done)
+                agent.train_with_mem()
+                state = next_state
+                total_reward += reward
+                if done:
+                    break
+            if config["target_update_freq"] is not None and episode % config["target_update_freq"] == 0:
+                agent.update_target()
+            episode_rewards.append(total_reward)
+            pbar.update(1)
+        
+    result = {
+        "config": config,
+        "mean_reward": float(np.mean(episode_rewards)),
+        "std_reward": float(np.std(episode_rewards)),
+    }
+    
+    run_id = f"qrc_{config['seed']}_{int(config['learning_rate']*1e6)}_{config['batch_size']}_{'no_target_update' if config['target_update_freq'] is None else config['target_update_freq']}"
+    torch.save({"rewards": torch.tensor(episode_rewards, dtype=torch.float32)}, 
+               os.path.join(save_dir, f"{run_id}.pt"))
+    with open(os.path.join(save_dir, f"{run_id}.json"), "w") as f:
+        json.dump(result, f, indent=2)
+    return result
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--agent", choices=["dqn", "qrc"], required=True)
+    parser.add_argument("--output", default="data/sweeps_random")
+    parser.add_argument("--episodes", type=int, default=1000)
+    parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument("--seeds", type=int, default=8)
+    parser.add_argument("--replicates", type=int, default=30) # seeds per ... seed, I guess
+    parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
+    parser.add_argument("--seed", type=int, default=None) # random
+    args = parser.parse_args()
+    
+    resolved_seed = args.seed if args.seed is not None else secrets.randbits(32)
+    print(f"No seed specified, using seed: {resolved_seed}")
+    
+    np.random.seed(resolved_seed)
+    torch.manual_seed(resolved_seed)
+    random.seed(resolved_seed)
+    
+    os.makedirs(args.output, exist_ok=True)
+    print(f"Device: {'CUDA' if torch.cuda.is_available() else 'CPU'}")
+    print(f"Saving to: {args.output}")
+    
+    base = {
+        "num_episodes": args.episodes,
+        "max_steps_per_episode": args.steps,
+        "seed": 0,
+    }
+    
+    dqn_space = {
+        "learning_rate": (1e-4, 5e-3),
+        "epsilon_start": [0.3, 0.5, 0.8, 1.0],
+        "epsilon_min": [0.01, 0.05, 0.1],
+        "epsilon_decay": [0.99990, 0.99997, 0.99999],
+        "batch_size": [64, 128, 256],
+        "buffer_size": [50000, 100000],
+        "gamma": [0.95, 0.99],
+        "target_update_freq": [5, 10, 20],
+    }
+    
+    qrc_space = {
+        "learning_rate": (1e-4, 5e-3),
+        "epsilon_start": [0.3, 0.5, 0.8, 1.0],
+        "epsilon_min": [0.01, 0.05, 0.1],
+        "epsilon_decay": [0.99990, 0.99997, 0.99999],
+        "batch_size": [64, 128, 256],
+        "buffer_size": [50000, 100000],
+        "gamma": [0.95, 0.99],
+        "target_update_freq": [None, 5, 10, 20],
+        "beta": (0.9, 1.0)
+    }
+    
+    space = dqn_space if args.agent == "dqn" else qrc_space
+    run_function = run_single_dqn if args.agent == "dqn" else run_single_qrc
+    
+    def make_config(i):
+        # golden ratio xor
+        # and then mask to 32 bit
+        rng_seed = (resolved_seed ^ (i + 0x9E3779B9)) & 0xFFFFFFFF
+        rng = random.Random(rng_seed)
+        config = sample_config(base, space, rng)
+        config["config_id"] = i
+        return config
+    
+    tasks = []
+    for i in range(args.seeds):
+        config = make_config(i)
+        for rep in range(args.replicates):
+            run_config = dict(config)
+            run_config["rep_index"] = rep
+            run_config["seed"] = i + rep * args.seeds
+            tasks.append(run_config)
+    
+    start = time.time()
+    all_results = []
+    with ProcessPoolExecutor(max_workers=args.jobs) as executor:
+        futures = [executor.submit(run_function, task, args.output) for task in tasks]
+        for future in as_completed(futures):
+            all_results.append(future.result())
+    
+    summary_by_config = {}
+    for r in all_results:
+        cid = r["config"]["config_id"]
+        summary_by_config.setdefault(cid, []).append(r["mean_reward"])
+    summary = {
+        "agent": args.agent,
+        "count": len(all_results),
+        "replicates": args.replicates,
+        "best_mean_reward": max((float(np.mean(v)) for v in summary_by_config.values()), default=None),
+        "results": all_results,
+        "elapsed_time": time.time() - start
+    }
+    
+    summary_path = os.path.join(args.output, f"{args.agent}_random_summary.json")
+    with open(summary_path, "w") as f:
+        json.dump(summary, f, indent=2)
+    
+    print(f"Saved summary to {summary_path}")
+    
+if __name__ == "__main__":
+    main()

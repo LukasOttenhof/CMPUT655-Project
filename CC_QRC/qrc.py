@@ -406,7 +406,7 @@ class Experiment:
                     if done:
                         break
 
-                if episode % target_update_freq == 0:
+                if target_update_freq is not None and (episode % target_update_freq == 0):
                     agent.update_target()
 
                 episode_rewards.append(total_reward)
@@ -420,121 +420,126 @@ class Experiment:
             )
             # print(f"Saved → {self.save_path}")
 
-num_episodes = 1000
-max_steps_per_episode = 500
-learning_rate = 1e-3
-epsilon_start = 0.5
-epsilon_decay = 0.99997
-epsilon_min = 0.01
-batch_size = 64
-target_update_freq = 5
-
-# seeds = [i for i in range(250)]
-def generate_seeds(n, low=0, high=10_000_000):
-    return [random.randint(low, high) for _ in range(n)]
-
-seeds = generate_seeds
-
-experiment_qrc_general = Experiment(
-    num_episodes=num_episodes,
-    max_steps_per_episode=max_steps_per_episode,
-    learning_rate=learning_rate,
-    epsilon_start=epsilon_start,
-    epsilon_decay=epsilon_decay,
-    epsilon_min=epsilon_min,
-    batch_size=batch_size,
-    seed_num=250,
-    target_update_freq=target_update_freq,
-    save_path="data/qrc_reward_seeds_new.pt"
-)
-
-experiment_qrc_epsilon = Experiment(
-    num_episodes=num_episodes,
-    max_steps_per_episode=max_steps_per_episode,
-    learning_rate=learning_rate,
-    epsilon_start=1,
-    epsilon_decay=epsilon_decay,
-    epsilon_min=0.5,
-    batch_size=batch_size,
-    seed_num=250,
-    target_update_freq=target_update_freq,
-    save_path="data/qrc_reward_seeds_epsilon_min_half.pt"
-)
-
-experiment_qrc_target_update_freq = Experiment(
-    num_episodes=num_episodes,
-    max_steps_per_episode=max_steps_per_episode,
-    learning_rate=learning_rate,
-    epsilon_start=epsilon_start,
-    epsilon_decay=epsilon_decay,
-    epsilon_min=epsilon_min,
-    batch_size=batch_size,
-    seed_num=250,
-    target_update_freq=20,
-    save_path="data/qrc_reward_seeds_target_update.pt"
-)
-
-experiment_dqn_epsilon = Experiment(
-    num_episodes=num_episodes,
-    max_steps_per_episode=max_steps_per_episode,
-    learning_rate=learning_rate,
-    epsilon_start=1,
-    epsilon_decay=epsilon_decay,
-    epsilon_min=0.5,
-    batch_size=batch_size,
-    seed_num=250,
-    target_update_freq=target_update_freq,
-    agent_type="DQN",
-    save_path="data/dqn_reward_seeds_epsilon_min_half.pt"
-)
-
-experiment_dqn_target_update_freq = Experiment(
-    num_episodes=num_episodes,
-    max_steps_per_episode=max_steps_per_episode,
-    learning_rate=learning_rate,
-    epsilon_start=epsilon_start,
-    epsilon_decay=epsilon_decay,
-    epsilon_min=epsilon_min,
-    batch_size=batch_size,
-    seed_num=250,
-    target_update_freq=20,
-    agent_type="DQN",
-    save_path="data/dqn_reward_seeds_target_update.pt"
-)
-
-
-experiment_qrc_general.run()
-# experiment_qrc_epsilon.run()
-# experiment_qrc_target_update_freq.run()
-# experiment_dqn_epsilon.run()
-# experiment_dqn_target_update_freq.run()
-
-# experiment_qrc_target_update_freq_2 = Experiment(
-#     num_episodes=num_episodes,
-#     max_steps_per_episode=max_steps_per_episode,
-#     learning_rate=learning_rate,
-#     epsilon_start=epsilon_start,
-#     epsilon_decay=epsilon_decay,
-#     epsilon_min=epsilon_min,
-#     batch_size=batch_size,
-#     seed_num=250,
-#     target_update_freq=2,
-#     save_path="data/qrc_reward_seeds_target_update_2.pt"
-# )
-
-# experiment_dqn_target_update_freq_2 = Experiment(
-#     num_episodes=num_episodes,
-#     max_steps_per_episode=max_steps_per_episode,
-#     learning_rate=learning_rate,
-#     epsilon_start=epsilon_start,
-#     epsilon_decay=epsilon_decay,
-#     epsilon_min=epsilon_min,
-#     batch_size=batch_size,
-#     seed_num=250,
-#     target_update_freq=2,
-#     agent_type="DQN",
-#     save_path="data/dqn_reward_seeds_target_update_2.pt"
-# )
-
-# experiment_qrc_target_update_freq_2.run()
-# experiment_dqn_target_update_freq_2.run()
+def run_qrc_experiment():
+    
+    num_episodes = 1000
+    max_steps_per_episode = 500
+    learning_rate = 1e-3
+    epsilon_start = 0.5
+    epsilon_decay = 0.99997
+    epsilon_min = 0.01
+    batch_size = 64
+    target_update_freq = 5
+    
+    # seeds = [i for i in range(250)]
+    def generate_seeds(n, low=0, high=10_000_000):
+        return [random.randint(low, high) for _ in range(n)]
+    
+    seeds = generate_seeds
+    
+    experiment_qrc_general = Experiment(
+        num_episodes=num_episodes,
+        max_steps_per_episode=max_steps_per_episode,
+        learning_rate=learning_rate,
+        epsilon_start=epsilon_start,
+        epsilon_decay=epsilon_decay,
+        epsilon_min=epsilon_min,
+        batch_size=batch_size,
+        seed_num=250,
+        target_update_freq=target_update_freq,
+        save_path="data/qrc_reward_seeds_new.pt"
+    )
+    
+    experiment_qrc_epsilon = Experiment(
+        num_episodes=num_episodes,
+        max_steps_per_episode=max_steps_per_episode,
+        learning_rate=learning_rate,
+        epsilon_start=1,
+        epsilon_decay=epsilon_decay,
+        epsilon_min=0.5,
+        batch_size=batch_size,
+        seed_num=250,
+        target_update_freq=target_update_freq,
+        save_path="data/qrc_reward_seeds_epsilon_min_half.pt"
+    )
+    
+    experiment_qrc_target_update_freq = Experiment(
+        num_episodes=num_episodes,
+        max_steps_per_episode=max_steps_per_episode,
+        learning_rate=learning_rate,
+        epsilon_start=epsilon_start,
+        epsilon_decay=epsilon_decay,
+        epsilon_min=epsilon_min,
+        batch_size=batch_size,
+        seed_num=250,
+        target_update_freq=20,
+        save_path="data/qrc_reward_seeds_target_update.pt"
+    )
+    
+    experiment_dqn_epsilon = Experiment(
+        num_episodes=num_episodes,
+        max_steps_per_episode=max_steps_per_episode,
+        learning_rate=learning_rate,
+        epsilon_start=1,
+        epsilon_decay=epsilon_decay,
+        epsilon_min=0.5,
+        batch_size=batch_size,
+        seed_num=250,
+        target_update_freq=target_update_freq,
+        agent_type="DQN",
+        save_path="data/dqn_reward_seeds_epsilon_min_half.pt"
+    )
+    
+    experiment_dqn_target_update_freq = Experiment(
+        num_episodes=num_episodes,
+        max_steps_per_episode=max_steps_per_episode,
+        learning_rate=learning_rate,
+        epsilon_start=epsilon_start,
+        epsilon_decay=epsilon_decay,
+        epsilon_min=epsilon_min,
+        batch_size=batch_size,
+        seed_num=250,
+        target_update_freq=20,
+        agent_type="DQN",
+        save_path="data/dqn_reward_seeds_target_update.pt"
+    )
+    
+    
+    experiment_qrc_general.run()
+    # experiment_qrc_epsilon.run()
+    # experiment_qrc_target_update_freq.run()
+    # experiment_dqn_epsilon.run()
+    # experiment_dqn_target_update_freq.run()
+    
+    # experiment_qrc_target_update_freq_2 = Experiment(
+    #     num_episodes=num_episodes,
+    #     max_steps_per_episode=max_steps_per_episode,
+    #     learning_rate=learning_rate,
+    #     epsilon_start=epsilon_start,
+    #     epsilon_decay=epsilon_decay,
+    #     epsilon_min=epsilon_min,
+    #     batch_size=batch_size,
+    #     seed_num=250,
+    #     target_update_freq=2,
+    #     save_path="data/qrc_reward_seeds_target_update_2.pt"
+    # )
+    
+    # experiment_dqn_target_update_freq_2 = Experiment(
+    #     num_episodes=num_episodes,
+    #     max_steps_per_episode=max_steps_per_episode,
+    #     learning_rate=learning_rate,
+    #     epsilon_start=epsilon_start,
+    #     epsilon_decay=epsilon_decay,
+    #     epsilon_min=epsilon_min,
+    #     batch_size=batch_size,
+    #     seed_num=250,
+    #     target_update_freq=2,
+    #     agent_type="DQN",
+    #     save_path="data/dqn_reward_seeds_target_update_2.pt"
+    # )
+    
+    # experiment_qrc_target_update_freq_2.run()
+    # experiment_dqn_target_update_freq_2.run()
+    
+if __name__ == "__main__":
+    run_qrc_experiment()
