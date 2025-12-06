@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=qrc_hyperparam_adam
 #SBATCH --gres=gpu:nvidia_h100_80gb_hbm3_1g.10gb:1
-#SBATCH --time=20:00:00
+#SBATCH --time=12:00:00
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=32G
 #SBATCH --output=output_qrc_adam.log
