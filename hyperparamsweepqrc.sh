@@ -4,7 +4,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=32G
-#SBATCH --output=output_qrc_adam.log
+#SBATCH --output=output_qrc_change.log
 #SBATCH --mail-user=rany@ualberta.ca
 #SBATCH --mail-type=BEGIN,END
 

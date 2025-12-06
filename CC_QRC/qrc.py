@@ -1,18 +1,15 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import os, shutil
+import os
 from tqdm import tqdm
 import seaborn as sns
 import random, numpy as np, torch
 from tbu_discrete import TruckBackerEnv_D
 import seaborn as sns
-import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import random
 from collections import deque
-import torch.nn.functional as f
 
 
 def set_global_seed(seed):
@@ -175,54 +172,32 @@ class QRCAgent:
         self.target_net.load_state_dict(self.q_net.state_dict())
 
 
-def run_qrc_experiment():
-    
-    from tbu_discrete import TruckBackerEnv_D
-    num_episodes = 1000
+def run(seed):
+    set_global_seed(seed)
+
+    env = TruckBackerEnv_D()
+    env.seed(seed)
+    env.action_space.seed(seed)
+    state = env.reset()
+
+    agent = QRCAgent(
+        state_dim=env.observation_space.shape[0],
+        action_dim=env.action_space.n,
+        epsilon=0.5,
+        epsilon_decay=0.99997,
+        epsilon_min=0.01,
+        batch_size=64
+    )
+
+    episode_rewards = []
+    episodes = 1000
     max_steps_per_episode = 500
-    learning_rate = 1e-3
-    epsilon_start = 0.5
-    epsilon_decay = 0.99997
-    epsilon_min = 0.01
-    batch_size = 64
     target_update_freq = 5
-    
-    
-    seeds = [i for i in range(10)]
-    
-    
-    all_rewards = []
-    for seed in seeds:
-        print(f"========== RUN SEED = {seed} ==========")
-        
-        # Global RNGs
-        set_global_seed(seed)
-    
-        # Environment
-        env = TruckBackerEnv_D(render_mode=None)
-        env.seed(seed)
-        env.action_space.seed(seed)
+
+    for episode in range(episodes):
         state = env.reset()
-    
-        # Agent
-        agent = QRCAgent(
-            state_dim=env.observation_space.shape[0],
-            action_dim=env.action_space.n,
-            lr=learning_rate,
-            epsilon=epsilon_start,
-            epsilon_decay=epsilon_decay,
-            epsilon_min=epsilon_min,
-            batch_size=batch_size
-        )
-    
-        episode_rewards = []
-    
-        for episode in range(1, num_episodes + 1):
-            env.seed(seed + episode)
-            state = env.reset()
-            total_reward = 0
-    
-            for t in range(max_steps_per_episode):
+        total_reward = 0
+        for t in range(max_steps_per_episode):
                 action = agent.agent_policy(state)
                 next_state, reward, done, info = env.step(action)
                 agent.remember(state, action, reward, next_state, done)
@@ -231,26 +206,20 @@ def run_qrc_experiment():
                 total_reward += reward
                 if done:
                     break
-    
-            if episode % target_update_freq == 0:
+
+        if episode % target_update_freq == 0:
                 agent.update_target()
-    
-            episode_rewards.append(total_reward)
-            print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.4f}")
-    
-        # Store rewards for this seed
-        all_rewards.append(episode_rewards)
-        
-    
-    # Convert to NumPy array for easier aggregation
-    #all_rewards = np.array(all_rewards)  # shape = (num_seeds, num_episodes)
-        torch.save(
-            {
-                "rewards": torch.tensor(all_rewards, dtype=torch.float32),
-            },
-            r"data/qrc_reward_last.pt"
-            )
-        
+
+        episode_rewards.append(total_reward)
+        print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.4f}")
+
+    # save individual seed result
+    os.makedirs("results", exist_ok=True)
+    np.savetxt(f"results/qrc_seed_{seed}.txt", np.array(episode_rewards))
+    # print(f"[Seed = {seed}] saved to results/qrc_seed_{seed}.txt")
+
+
 if __name__ == "__main__":
-    # run_qrc_experiment()
-    pass
+    import sys
+    seed = int(sys.argv[1])
+    run(seed)
