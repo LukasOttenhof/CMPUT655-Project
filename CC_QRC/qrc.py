@@ -50,23 +50,8 @@ class QRCAgent:
         buffer_size=50000,
         batch_size=64,
         beta=1,     # weight decay for h-net (small default)
-        device=None,
-        seed=None
+        device=None
     ):
-        if seed is not None:
-            self.seed = seed
-            torch.manual_seed(seed)
-            np.random.seed(seed)
-            random.seed(seed)
-            if torch.cuda.is_available():
-                torch.cuda.manual_seed(seed)
-                torch.cuda.manual_seed_all(seed)
-            # Make CUDA operations deterministic (optional, may slow down training)
-            torch.backends.cudnn.deterministic = True
-            torch.backends.cudnn.benchmark = False
-        else:
-            self.seed = None
-        # Basic configs
         self.state_dim = state_dim
         self.action_dim = action_dim
         self.lr = lr
@@ -77,24 +62,22 @@ class QRCAgent:
         self.batch_size = batch_size
         self.beta = beta
 
-        # Replay buffer
+        # Replay memory
         self.memory = deque(maxlen=buffer_size)
 
         # Device
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self.device = torch.device("cuda")
+        self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
 
-        # Networks (simple MLPs)
-        self.q_nn = self.build_nn(output_dim=action_dim).to(self.device)
-        self.target_net = self.build_nn(output_dim=action_dim).to(self.device)
-        self.h_net = self.build_nn(output_dim=action_dim).to(self.device)
+        # Networks
+        self.q_net = self.build_nn(output_dim=self.action_dim).to(self.device)
+        self.target_net = self.build_nn(output_dim=self.action_dim).to(self.device)
+        self.h_net = self.build_nn(output_dim=self.action_dim).to(self.device)
 
-        # Initialize target net
-        self.target_net.load_state_dict(self.q_nn.state_dict())
-        self.target_net.eval()
+        # init target
+        self.target_net.load_state_dict(self.q_net.state_dict())
 
         # Optimizers
-        self.q_optimizer = optim.Adam(self.q_nn.parameters(), lr=self.lr)
+        self.q_optimizer = optim.Adam(self.q_net.parameters(), lr=self.lr)
         self.h_optimizer = optim.Adam(self.h_net.parameters(), lr=self.lr, weight_decay=self.beta)
 
         self.steps = 0
@@ -116,7 +99,7 @@ class QRCAgent:
 
         state_t = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # (1, state_dim)
         with torch.no_grad():
-            q_values = self.q_nn(state_t)  # (1, action_dim)
+            q_values = self.q_net(state_t)  # (1, action_dim)
         return int(q_values.argmax(dim=1).item())
 
     def remember(self, s, a, r, s2, done):
@@ -126,7 +109,7 @@ class QRCAgent:
         if len(self.memory) < self.batch_size:
             return
 
-        # Sample a mini-batch
+        # Sample mini-batch
         batch = random.sample(self.memory, self.batch_size)
         states, actions, rewards, next_states, dones = zip(*batch)
 
@@ -136,20 +119,16 @@ class QRCAgent:
         rewards = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
         dones = torch.tensor(dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-        # Current Q(s,a)
-        q_values = self.q_nn(states)
-        q_sa = q_values.gather(1, actions).squeeze()
+        # Q(s,a)
+        q_values = self.q_net(states)
+        q_sa = q_values.gather(1, actions)
 
-        # Non-terminal mask and next Q(s', a')
-        non_terminal_mask = (dones == 0).squeeze()
-        next_q = torch.zeros(len(states), 1, device=self.device)
-        if non_terminal_mask.sum() > 0:
-            non_term_next_states = next_states[non_terminal_mask]
-            next_q_vals = self.target_net(non_term_next_states)
-            next_q[non_terminal_mask] = next_q_vals.max(1)[0].unsqueeze(1)
+        # ---- target net forward pass (with grad for correction) ----
+        next_q_all = self.target_net(next_states)               # (B,A)
+        next_q = next_q_all.max(dim=1, keepdim=True)[0]         # (B,1)
 
-        # TD target
-        target = rewards + self.gamma * next_q.detach()
+        # TD target (no grad)
+        target = rewards + self.gamma * next_q.detach() * (1.0 - dones)
         delta = target - q_sa
         delta_detached_for_h = delta.detach()
 
@@ -158,172 +137,120 @@ class QRCAgent:
         h_sa = h_values.gather(1, actions)
 
         # Losses
-        # td_loss = 0.5 * f.mse_loss(target, q_sa)
         td_loss = 0.5 * (delta.pow(2)).mean()
-        
         correction_term = torch.mean(self.gamma * h_sa.detach() * next_q)
-
-        # h_loss = 0.5 * f.mse_loss(delta_detached_for_h, h_sa)
         h_loss = 0.5 * ((delta_detached_for_h - h_sa).pow(2)).mean()
 
-        # ---- Update q_nn (policy network) ----
+        # ---- Update q_net ----
         self.q_optimizer.zero_grad()
         self.target_net.zero_grad()
 
         td_loss.backward()
-        if non_terminal_mask.sum() > 0:
-            correction_term.backward()
+        correction_term.backward()
 
-        # Add target_net gradients to q_nn
-        for policy_param, target_param in zip(self.q_nn.parameters(), self.target_net.parameters()):
-            if target_param.grad is not None:
-                if policy_param.grad is None:
-                    policy_param.grad = target_param.grad.clone()
+        # Transfer target_net gradients to q_net
+        for p_q, p_t in zip(self.q_net.parameters(), self.target_net.parameters()):
+            if p_t.grad is not None:
+                if p_q.grad is None:
+                    p_q.grad = p_t.grad.clone()
                 else:
-                    policy_param.grad.add_(target_param.grad)
+                    p_q.grad.add_(p_t.grad)
 
         self.q_optimizer.step()
 
-        # ---- Update h_net separately ----
+        # Clean target_net grads after transferring
+        self.target_net.zero_grad(set_to_none=True)
+
+        # ---- Update h_net ----
         self.h_optimizer.zero_grad()
         h_loss.backward()
         self.h_optimizer.step()
 
         # ---- Epsilon decay ----
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay 
 
     # Target network update (hard update)
     def update_target(self):
-        self.target_net.load_state_dict(self.q_nn.state_dict())
+        self.target_net.load_state_dict(self.q_net.state_dict())
 
 
-class Experiment:
-    def __init__(
-            self,
-            num_episodes = 1000,
-            max_steps_per_episode = 500,
-            learning_rate = 1e-3,
-            epsilon_start = 0.5,
-            epsilon_decay = 0.99997,
-            epsilon_min = 0.01,
-            batch_size = 64,
-            buffer_size = 50000,
-            target_update_freq = 5,
-            beta = 1,
-            seed_num = 5,
-            agent_type = "QRC",
-            save_path = "../data/qrc_reward_seeds.pt"
-            ):
-        self.num_episodes = num_episodes
-        self.max_steps_per_episode = max_steps_per_episode
-        self.learning_rate = learning_rate
-        self.epsilon_start = epsilon_start
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.batch_size = batch_size
-        self.buffer_size = buffer_size
-        self.target_update_freq = target_update_freq
-        self.beta = beta
-        self.seed_num = seed_num
-        self.seeds = [i for i in range(seed_num)]
-        self.save_path = save_path
-        self.agent_type = agent_type
-
-    def run(self):
-        # os.makedirs("../data", exist_ok=True)
-        all_rewards = []
-        for seed in self.seeds:
-            print(f"========== RUN {self.agent_type} SEED = {seed} ==========")
-            
-            # Global RNGs
-            # set_global_seed(seed)
-
-            # Environment
-            env = TruckBackerEnv_D(render_mode=None)
-            env.seed(seed)
-            env.action_space.seed(seed)
+def run_qrc_experiment():
+    
+    from tbu_discrete import TruckBackerEnv_D
+    num_episodes = 1000
+    max_steps_per_episode = 500
+    learning_rate = 1e-3
+    epsilon_start = 0.5
+    epsilon_decay = 0.99997
+    epsilon_min = 0.01
+    batch_size = 64
+    target_update_freq = 5
+    
+    
+    seeds = [i for i in range(10)]
+    
+    
+    all_rewards = []
+    for seed in seeds:
+        print(f"========== RUN SEED = {seed} ==========")
+        
+        # Global RNGs
+        set_global_seed(seed)
+    
+        # Environment
+        env = TruckBackerEnv_D(render_mode=None)
+        env.seed(seed)
+        env.action_space.seed(seed)
+        state = env.reset()
+    
+        # Agent
+        agent = QRCAgent(
+            state_dim=env.observation_space.shape[0],
+            action_dim=env.action_space.n,
+            lr=learning_rate,
+            epsilon=epsilon_start,
+            epsilon_decay=epsilon_decay,
+            epsilon_min=epsilon_min,
+            batch_size=batch_size
+        )
+    
+        episode_rewards = []
+    
+        for episode in range(1, num_episodes + 1):
+            env.seed(seed + episode)
             state = env.reset()
-            state_dim = env.observation_space.shape[0]
-            action_dim = env.action_space.n
-            # episode_rewards = []
-
-            # Agent
-            agent = QRCAgent(
-                    state_dim=state_dim,
-                    action_dim=action_dim,
-                    lr=self.learning_rate,
-                    epsilon=self.epsilon_start,
-                    epsilon_decay=self.epsilon_decay,
-                    epsilon_min=self.epsilon_min,
-                    batch_size=self.batch_size,
-                    buffer_size= self.buffer_size,
-                    seed=seed,
-                    beta=self.beta
-                )
-
-            episode_rewards = []
-
-            for episode in range(1, num_episodes + 1):
-                # env.seed(seed)
-                # env.seed(seed + episode)
-                state = env.reset()
-                total_reward = 0
-
-                for t in range(max_steps_per_episode):
-                    action = agent.agent_policy(state)
-                    next_state, reward, done, info = env.step(action)
-                    agent.remember(state, action, reward, next_state, done)
-                    agent.train_with_mem()
-                    state = next_state
-                    total_reward += reward
-                    if done:
-                        break
-
-                if target_update_freq is not None and (episode % target_update_freq == 0):
-                    agent.update_target()
-
-                episode_rewards.append(total_reward)
-                print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.5f}")
-
-            all_rewards.append(episode_rewards)
-
-            torch.save(
-                {"rewards": torch.tensor(all_rewards, dtype=torch.float32)},
-                self.save_path
+            total_reward = 0
+    
+            for t in range(max_steps_per_episode):
+                action = agent.agent_policy(state)
+                next_state, reward, done, info = env.step(action)
+                agent.remember(state, action, reward, next_state, done)
+                agent.train_with_mem()
+                state = next_state
+                total_reward += reward
+                if done:
+                    break
+    
+            if episode % target_update_freq == 0:
+                agent.update_target()
+    
+            episode_rewards.append(total_reward)
+            print(f"Seed {seed} | Episode {episode} | Reward {total_reward:.2f} | Epsilon {agent.epsilon:.4f}")
+    
+        # Store rewards for this seed
+        all_rewards.append(episode_rewards)
+        
+    
+    # Convert to NumPy array for easier aggregation
+    #all_rewards = np.array(all_rewards)  # shape = (num_seeds, num_episodes)
+        torch.save(
+            {
+                "rewards": torch.tensor(all_rewards, dtype=torch.float32),
+            },
+            r"data/qrc_reward_last.pt"
             )
-            # print(f"Saved → {self.save_path}")
-
-num_episodes = 1000
-max_steps_per_episode = 500
-learning_rate = 0.0001
-epsilon_start = 1
-epsilon_decay = 0.99997
-epsilon_min = 0.01
-batch_size = 64
-buffer_size = 50000
-gamma = 0.99
-target_update_freq = 5
-
-# seeds = [i for i in range(250)]
-def generate_seeds(n, low=0, high=10_000_000):
-    # return [random.randint(low, high) for _ in range(n)]
-    return [i for i in range(n)]
-
-# seeds = generate_seeds(10)
-
-experiment_qrc_general = Experiment(
-    num_episodes=num_episodes,
-    max_steps_per_episode=max_steps_per_episode,
-    learning_rate=learning_rate,
-    epsilon_start=epsilon_start,
-    epsilon_decay=epsilon_decay,
-    epsilon_min=epsilon_min,
-    batch_size=batch_size,
-    buffer_size=buffer_size,
-    seed_num=50,
-    beta=1,
-    target_update_freq=target_update_freq,
-    save_path="data/qrc_ravyn_suggested_hyperparameter.pt"
-)
-
-# experiment_qrc_general.run()
+        
+if __name__ == "__main__":
+    # run_qrc_experiment()
+    pass
