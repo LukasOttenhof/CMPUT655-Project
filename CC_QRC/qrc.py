@@ -410,7 +410,7 @@ class Experiment:
                     if done:
                         break
 
-                if episode % target_update_freq == 0:
+                if target_update_freq is not None and (episode % target_update_freq == 0):
                     agent.update_target()
 
                 episode_rewards.append(total_reward)
