@@ -15,6 +15,6 @@ module load cuda/12.6
 
 source cc/bin/activate
 echo "starting python"
-python CC_Sweep/sweep.py --agent qrc --seeds 9999 --jobs 12 --output 'data/qrc_adam_sweep_results'
+python CC_Sweep/sweep.py --agent qrc --seeds 9999 --jobs 12 --output 'data/qrc_changed_sweep_results'
 
 echo "finished"
