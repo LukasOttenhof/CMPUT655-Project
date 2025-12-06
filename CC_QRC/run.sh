@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:nvidia_h100_80gb_hbm3_1g.10gb:1
 #SBATCH --cpus-per-task=12
 #SBATCH --time=00:20:00
-#SBATCH --array=0-1
+#SBATCH --array=0-250
 #SBATCH --output=logs/output_%A_%a.log
 #SBATCH --mail-user=rany@ualberta.ca
 #SBATCH --mail-type=END
