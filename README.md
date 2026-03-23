@@ -1,4 +1,4 @@
-# CMPUT655-Project
+# DQN-vs-QRC
 
 Setup
 ```bash
